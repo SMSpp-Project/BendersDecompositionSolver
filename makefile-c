@@ -1,0 +1,56 @@
+##############################################################################
+################################ makefile-c ##################################
+##############################################################################
+#                                                                            #
+#   complete makefile of BendersDecompositionSolver                          #
+#                                                                            #
+#   The makefile defines internally all external libraries (comprised the    #
+#   SMS++ one) required by BendersDecompositionSolver. Accordingly, all       #
+#   necessary OBJ, H, -I directives, external libraries + -L< libdirs > are   #
+#   added to the corresponding BnDSLV* macros.                               #
+#                                                                            #
+#   Input:  $(CC)        = compiler command                                  #
+#           $(SW)        = compiler options                                  #
+#           $(BnDSLVSDR) = the directory where BendersDecompositionSolver     #
+#                          source is                                         #
+#           $(BnDSLVODR) = the directory where the objects have to be put    #
+#                                                                            #
+#   Output: $(BnDSLVOBJ) = the final object(s) / library                     #
+#           $(BnDSLVLIB) = external libraries + -L< libdirs >                #
+#           $(BnDSLVH)   = the .h files to include                           #
+#           $(BnDSLVINC) = the -I$( BendersDecompositionSolver directory )    #
+#                                                                            #
+#                              Antonio Frangioni                             #
+#                                Donato Meoli                                #
+#                         Dipartimento di Informatica                        #
+#                             Universita' di Pisa                            #
+#                                                                            #
+##############################################################################
+
+# define & include the necessary modules- - - - - - - - - - - - - - - - - - -
+# if a module is not used in the current configuration, just comment out the
+# corresponding include line
+# each module outputs some macros to be used here:
+# *OBJ is the final object/library
+# *H   is the list of all include files
+# *INC is the -I< include directories >
+
+# define input macros for SMS++ library makefile, then include it
+SMS++SDR = $(BnDSLVSDR)/../SMS++
+include $(SMS++SDR)/lib/makefile-inc
+
+# include the makefile requiring all external modules in input
+include $(BnDSLVSDR)/makefile
+
+# macros to be exported - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# append external stuff defined in the other makefiles to BnDSLVOBJ,
+# BnDSLVINC and BnDSLVH, thus the := assignment has to be used (use GNU make)
+BnDSLVOBJ := $(BnDSLVOBJ) $(SMS++OBJ)
+BnDSLVINC := $(BnDSLVINC) $(SMS++INC)
+BnDSLVH := $(BnDSLVH) $(SMS++H)
+
+# external libraries for BendersDecompositionSolver (those of SMS++)
+BnDSLVLIB =  $(SMS++LIB)
+
+############################ End of makefile #################################
