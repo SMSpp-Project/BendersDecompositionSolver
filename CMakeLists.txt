@@ -17,14 +17,20 @@
 # --------------------------------------------------------------------------- #
 cmake_minimum_required(VERSION 3.21)
 cmake_policy(VERSION 3.15)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DeriveVersion.cmake)
+smspp_derive_version(SMSPP_MODULE_VERSION)
+
 project(BendersDecompositionSolver
-        VERSION 0.1.0
+        VERSION ${SMSPP_MODULE_VERSION}
         DESCRIPTION "SMS++ BendersDecompositionSolver module"
         HOMEPAGE_URL https://gitlab.com/smspp/bendersdecompositionsolver
         LANGUAGES C CXX)
 
 # These variables make the code harder to read but easier to change.
 set(modName ${PROJECT_NAME})
+
+# C-safe form of modName for the preprocessor macros in <modName>Config.h
+string(MAKE_C_IDENTIFIER "${modName}" modMacro)
 set(modNamespace "SMS++")
 
 # Find out if it's being called by the umbrella.
@@ -70,6 +76,7 @@ target_sources(${modName} PRIVATE
 target_include_directories(
         ${modName} PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
         $<INSTALL_INTERFACE:include/${modNamespace}>)
 
 target_link_libraries(${modName} PUBLIC
@@ -79,9 +86,49 @@ target_link_libraries(${modName} PUBLIC
 # the library with this notation.
 add_library(${modNamespace}::${modName} ALIAS ${modName})
 
-# ----- Subdirectories ------------------------------------------------------ #
-if (BUILD_TESTING)
-    # Just consuming BUILD_TESTING to avoid warnings
+# ----- Tests --------------------------------------------------------------- #
+# The validation test compares BendersDecompositionSolver against a monolithic
+# reference solve, so it needs a master Solver (BundleSolver) and a subproblem
+# Solver (a *MILPSolver); it is built only when both modules are available.
+if (BUILD_BundleSolver AND BUILD_MILPSolver)
+    # enable testing in this directory's scope: the umbrella calls
+    # enable_testing() only after this subdirectory has been processed, so the
+    # test would otherwise not be registered with CTest
+    enable_testing()
+    add_executable(${modName}_test test/test.cpp)
+    target_link_libraries(${modName}_test PRIVATE
+            ${modNamespace}::${modName}
+            ${modNamespace}::BundleSolver
+            ${modNamespace}::MILPSolver)
+    add_test(NAME ${modName}_test
+            COMMAND ${modName}_test
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
+
+    # extirpation comparison: BDS+BundleSolver vs the ad-hoc Benders (BenForm)
+    # of CapacitatedFacilityLocationBlock on a real CFL instance, checking the
+    # solutions coincide (same model) and reporting the times
+    if (BUILD_CapacitatedFacilityLocationBlock)
+        add_executable(${modName}_cfl_test test/test_cfl.cpp)
+        target_link_libraries(${modName}_cfl_test PRIVATE
+                ${modNamespace}::${modName}
+                ${modNamespace}::BundleSolver
+                ${modNamespace}::MILPSolver
+                ${modNamespace}::CapacitatedFacilityLocationBlock)
+        add_test(NAME ${modName}_cfl_test
+                COMMAND ${modName}_cfl_test
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
+    endif ()
+
+    # unit test for PolyhedralFunction::remove_parallel_rows() and
+    # PolyhedralFunctionBlock::remove_redundant_rows() (the row pruning that
+    # replaced the standalone CutProcessing class)
+    add_executable(${modName}_prune_test test/test_prune.cpp)
+    target_link_libraries(${modName}_prune_test PRIVATE
+            ${modNamespace}::SMS++
+            ${modNamespace}::MILPSolver)
+    add_test(NAME ${modName}_prune_test
+            COMMAND ${modName}_prune_test
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
 endif ()
 
 # ----- Install instructions ------------------------------------------------ #
