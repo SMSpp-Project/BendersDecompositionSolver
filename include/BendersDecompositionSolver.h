@@ -189,6 +189,10 @@ class BendersDecompositionSolver : public CDASolver
 /** @name Public types
  *  @{ */
 
+ // "import" basic types from Block
+ using Index = Block::Index;
+ using c_Index = Block::c_Index;
+
  /// regime used to solve the master problem (O')
  enum master_regime_type {
   eConvexMaster = 0 ,  ///< convex master, solved by a bundle-type CDASolver
