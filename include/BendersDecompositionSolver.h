@@ -72,6 +72,10 @@
 
 #include "UpdateSolver.h"
 
+#include <list>
+
+#include <map>
+
 /*--------------------------------------------------------------------------*/
 /*--------------------------- NAMESPACE ------------------------------------*/
 /*--------------------------------------------------------------------------*/
@@ -192,6 +196,8 @@ class BendersDecompositionSolver : public CDASolver
  // "import" basic types from Block
  using Index = Block::Index;
  using c_Index = Block::c_Index;
+ using Subset = Block::Subset;
+ using Range = Block::Range;
 
  /// regime used to solve the master problem (O')
  enum master_regime_type {
@@ -367,6 +373,26 @@ class BendersDecompositionSolver : public CDASolver
  /// translate the master x and the subproblem y^k back into (B)
  void map_back_solution( void );
 
+ /// create the master Solver out of str_Mstr_BSCfg and register it to (B)
+ /** Creates the Solver named by the BlockSolverConfig in str_Mstr_BSCfg,
+  * gives it the corresponding ComputeConfig and registers it to the master
+  * Block. The Solver is registered *additively*, i.e., by hand rather than by
+  * applying the BlockSolverConfig: applying it would replace the Solver
+  * registered to (B), which is this BendersDecompositionSolver, and destroy
+  * it in the middle of its own compute(). */
+
+ void acquire_master_solver( void );
+
+ /// apply to \p block the BlockSolverConfig, or meta-configuration, in \p fn
+ /** Applies to \p block the Configuration in the file \p fn, which is either
+  * a BlockSolverConfig, applied as it is, or a "meta-configuration", i.e., a
+  * SimpleConfiguration< std::map< std::string , Configuration * > > mapping
+  * the classname() of a Block to the BlockSolverConfig for it, which is
+  * dispatched by classname() over the whole sub-tree. The latter is what
+  * makes heterogeneous subproblems configurable. */
+
+ void apply_BSCfg( Block * block , const std::string & fn );
+
  /// translate a master-Solver int parameter index into the BDSlv index space
  [[nodiscard]] idx_type int_par_ms( idx_type par ) const;
 
@@ -388,6 +414,24 @@ class BendersDecompositionSolver : public CDASolver
 
  /// the complicating (first-stage) Variable x, in master order
  std::vector< ColVariable * > v_x;
+
+ /// the position of each complicating Variable in v_x
+ std::map< const ColVariable * , Index > x_index;
+
+ /// the epigraph Variable of the MILP master, one per cut family
+ std::vector< ColVariable > * v_eta{};
+
+ /// the Benders cuts of the MILP master
+ std::list< FRowConstraint > * v_cuts{};
+
+ /// true once the reformulation has been done
+ bool f_reformulated = false;
+
+ /// the value of the master at the last compute()
+ OFValue f_value = 0;
+
+ /// true if a solution of the master is available
+ bool f_solved = false;
 
  // ----- parameters -------------------------------------------------------
 

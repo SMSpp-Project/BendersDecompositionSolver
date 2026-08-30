@@ -1,0 +1,37 @@
+# BlockSolverConfig for B2 (BenForm CFLB): GRBMILPSolver with the new
+# intRelaxIntVars == 2 mode: pure-LP solve with an explicit user-cut
+# separation loop driven by MILPSolver around each guts_of_compute().
+# This is the architecturally clean solution to the BenForm LP test:
+# no MIP-at-root tricks, no lazy constraints, no over-tightening.
+
+BlockSolverConfig
+
+1  # differential
+
+1  # number of Solver names
+GRBMILPSolver
+
+1  # number of ComputeConfig
+
+ComputeConfig
+1  # f_diff
+
+4  # int params
+intLogVerb        0
+intRelaxIntVars   2      # LP with user-cut separation loop in MILPSolver
+intCutSepPar      1      # only bit 0 matters (the loop runs unconditionally
+                         # in the base when intRelaxIntVars == 2, but a
+                         # non-zero CutSepPar also signals the base to hold
+                         # the Block lock() rather than just read_lock())
+intMaxCutPasses   10000  # raise the cut pass cap (default 1000) so capa1
+                         # has a chance to converge (Benders tailing off)
+
+1  # double params
+dblRelAcc 1e-7
+
+0  # string params
+0  # vint
+0  # vdbl
+0  # vstr
+
+*  # extra

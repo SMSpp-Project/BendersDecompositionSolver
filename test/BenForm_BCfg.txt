@@ -1,0 +1,113 @@
+# BlockConfig for B2 (the R3-copy CFLB): "Benders friendly" formulation
+# (wf has the BenFormBit, i.e. wf == 8).
+#
+# The "extra" field carries the configuration for the hidden
+# BendersBFunction and its inner MCFBlock. BenForm requires it (CFLB throws
+# if missing). The preferred form is
+#
+#  SimpleConfiguration< pair< Configuration * , Configuration * > >
+#
+# where:
+#  - first  = R3-Block Cfg (SimpleConfiguration<int> or
+#             SimpleConfiguration<pair<int,double>>): the int (wR3B) is
+#             ignored (hidden inner MCF is always "flow relaxation"), the
+#             double (slackBigMScale) scales the slack-arc cost when the
+#             variant in use employs slack arcs. nullptr means "defaults".
+#  - second = ComputeConfig of the BendersBFunction (cf.
+#             BendersBFunction::set_ComputeConfig()): handles BF params and,
+#             via the named map in its f_extra_Configuration, the
+#             BlockConfig / BlockSolverConfig to be applied to the inner
+#             MCFBlock (the "BlockSolverConfig" key being required because
+#             BenForm needs a Solver registered to the inner Block).
+#
+# See CFLB::set_BlockConfig() comments for the legacy forms still accepted.
+
+BlockConfig
+
+1  # differential
+
+2  # version of the BlockConfig format
+
+# the Configuration for the structure, i.e., the tree of sub-Block
+*  # [none]
+
+*  # static_constraints
+
+# dynamic_constraints: SimpleConfiguration< pair< int , double > > whose
+# second value is the *relative* violation tolerance for Benders cuts
+# (the first is ignored, only one cut per call in BenForm). 1e-6 is the
+# safe default that keeps the test value tolerance within reach.
+SimpleConfiguration<std::pair<int,double>>
+1 1e-6
+
+# static_variables: SimpleConfiguration< int > with value 3 = BenForm with feasibility cuts (wf & 3 == 3)
+SimpleConfiguration<int>
+2
+
+*  # dynamic_variables
+*  # objective
+*  # is_feasible
+*  # is_optimal
+*  # solution
+
+# extra: pair< R3-Block Cfg , ComputeConfig of f_BF >
+
+SimpleConfiguration<std::pair<Configuration*,Configuration*>>
+
+# first: R3-Block Cfg with slackBigMScale (wR3B == 2 is just a placeholder,
+# CFLB ignores it for the BenForm hidden inner MCF)
+SimpleConfiguration<std::pair<int,double>>
+2 100.0
+
+# second: ComputeConfig of the BendersBFunction. The named map in its
+# extra Configuration carries the BlockSolverConfig for the inner MCF.
+
+ComputeConfig
+
+1   # f_diff
+0   # int params
+0   # double params
+0   # string params
+0   # vector<int> params
+0   # vector<double> params
+0   # vector<string> params
+
+# extra Configuration of the BendersBFunction ComputeConfig: a named map
+# (string -> Configuration *); only "BlockConfig" and "BlockSolverConfig"
+# are used here (for the inner MCF), but BendersBFunction supports more
+# keys (get_dual_*) for fine-tuning the dual queries.
+
+SimpleConfiguration<std::map<std::string,Configuration*>>
+
+1   # map size: one entry
+
+# key "BlockSolverConfig" → BlockSolverConfig for the inner MCF.
+# GRBMILPSolver directly (rather than MCFSolver<*>): MCFSolver dual values
+# on closed/zero-capacity arcs are not reliable, and Benders cuts depend
+# critically on the dual being correct on those exact constraints.
+BlockSolverConfig
+
+BlockSolverConfig
+
+1  # differential
+
+1  # number of Solver names
+GRBMILPSolver
+
+1  # number of ComputeConfig
+
+ComputeConfig
+1  # f_diff
+
+2  # int params
+intLogVerb        0
+intRelaxIntVars   1     # pure LP solve (the MCF is continuous)
+
+1  # double params
+dblRelAcc 1e-9
+
+0  # string params
+0  # vector<int> params
+0  # vector<double> params
+0  # vector<string> params
+*  # extra
