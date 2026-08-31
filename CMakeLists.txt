@@ -119,6 +119,23 @@ if (BUILD_BundleSolver AND BUILD_MILPSolver)
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
     endif ()
 
+    # the two dual decompositions of a SVM training problem, one against the
+    # other on the same instance: the consensus one under a Lagrangian Solver
+    # and the Benders one under this Solver, both cross-checked against the
+    # ad hoc SMOSolver of SVMBlock
+    if (BUILD_SVMBlock AND BUILD_LagrangianDualSolver)
+        add_executable(${modName}_svm_test test/test_svm.cpp)
+        target_link_libraries(${modName}_svm_test PRIVATE
+                ${modNamespace}::${modName}
+                ${modNamespace}::BundleSolver
+                ${modNamespace}::MILPSolver
+                ${modNamespace}::LagrangianDualSolver
+                ${modNamespace}::SVMBlock)
+        add_test(NAME ${modName}_svm_test
+                COMMAND ${modName}_svm_test
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
+    endif ()
+
     # unit test for PolyhedralFunction::remove_parallel_rows() and
     # PolyhedralFunctionBlock::remove_redundant_rows() (the row pruning that
     # replaced the standalone CutProcessing class)

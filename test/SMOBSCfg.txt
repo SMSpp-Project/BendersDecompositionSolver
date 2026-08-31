@@ -1,0 +1,32 @@
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - SMOBSCfg.txt  - - - - - - - - - - - - - - -
+#
+# A txt description of a BlockSolverConfig for the inner Block of a
+# LagBFunction, i.e., one chunk of the consensus structure of a SVMBlock [see
+# SVMBlock::set_structure()], to be solved by the ad hoc SMOSolver: the
+# multipliers of the relaxed consensus constraints are the linear term of the
+# primal of the chunk [see SVMBlock::set_linear_term()], which the SMOSolver
+# folds into the dual it solves
+#
+#   Donato Meoli
+#
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+BlockSolverConfig     # exact type of the Configuration object
+
+1  # the BlockSolverConfig is a "differential" one
+
+1  # number of (the names of) Solver in this BlockSolverConfig
+
+# now all the names of the Solver - - - - - - - - - - - - - - - - - - - - - -
+SMOSolver
+
+1  # number of ComputeConfig in this BlockSolverConfig
+
+# now all the ComputeConfig - - - - - - - - - - - - - - - - - - - - - - - - -
+*SMOCfg.txt
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - END SMOBSCfg.txt  - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

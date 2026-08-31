@@ -26,6 +26,8 @@
 
 #include "FRowConstraint.h"
 
+#include "DQuadFunction.h"
+
 #include "LinearFunction.h"
 
 #include "SMSTypedefs.h"
@@ -585,10 +587,17 @@ void BendersDecompositionSolver::build_MILP_master( void )
                            "the epigraph Variable of a maximising one taking "
                            "an initial bound that is problem-dependent" ) );
 
+ /* The Objective of the master is not touched save for the epigraph
+  * Variable, which enter it linearly: it can therefore be linear, as it is
+  * in the combinatorial problems the method is classically applied to, or
+  * quadratic, as it is whenever the master carries a regularisation term. */
+
  auto lf = dynamic_cast< LinearFunction * >( obj->get_function() );
- if( ! lf )
-  throw( std::logic_error( _prfx + "the Objective of the master is not "
-                           "linear" ) );
+ auto qf = dynamic_cast< DQuadFunction * >( obj->get_function() );
+
+ if( ! ( lf || qf ) )
+  throw( std::logic_error( _prfx + "the Objective of the master is neither "
+                           "linear nor quadratic separable" ) );
 
  auto & nested = f_master->access_nested_Blocks();
  nested.clear();
@@ -611,7 +620,10 @@ void BendersDecompositionSolver::build_MILP_master( void )
  f_master->add_static_variable( *v_eta , "eta" );
 
  for( auto & eta : *v_eta )
-  lf->add_variable( & eta , 1 , eNoMod );
+  if( lf )
+   lf->add_variable( & eta , 1 , eNoMod );
+  else
+   qf->add_variable( & eta , 1 , 0 , eNoMod );
 
  v_cuts = new std::list< FRowConstraint >;
  f_master->add_dynamic_constraint( *v_cuts , "cuts" );
