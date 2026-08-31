@@ -264,7 +264,14 @@ int main( int argc , char ** argv )
  double lsvm = smo , t_lsvm = 0;
  bool has_lsvm = false;
 
- if( auto probe = Solver::new_Solver( "LIBSVMSolver" ) ) {
+ /* Solver::new_Solver() throws if the name is not in the factory, which is
+  * what happens when SVMBlock has been built without LIBSVM. */
+
+ Solver * probe = nullptr;
+ try { probe = Solver::new_Solver( "LIBSVMSolver" ); }
+ catch( const std::exception & ) {}
+
+ if( probe ) {
   delete probe;
   has_lsvm = true;
 
