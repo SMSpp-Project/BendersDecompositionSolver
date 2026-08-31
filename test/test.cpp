@@ -297,9 +297,10 @@ int main( void )
 
  // ----- feasibility cuts: no-slack instance, MILP regime ----------------- #
  // without the slack the subproblem is infeasible for small y, so the solver
- // must generate Benders feasibility cuts; this only works if the subproblem
- // Solver provides an infeasibility certificate (Farkas dual direction), which
- // the current MILPSolver integration does not, so this case is informational
+ // must generate Benders feasibility cuts out of the Farkas certificate of the
+ // subproblem: whether there is one depends on how the subproblem Solver is
+ // configured [see BSPar_sub.txt], hence the case is only checked if it does
+ // provide it, and is skipped, rather than failed, if it does not
  const double tol = 1e-5;
  auto rel = []( double a , double b ) {
   return( std::abs( a - b )
@@ -310,18 +311,19 @@ int main( void )
  const double ref_ns = solve_from_config( mono_ns , "BSPar_sub.txt" ,
 					  st_ns_ref );
  auto root_ns = build_structured( false );
+ bool ok_ns = true;
  try {
   int st_ns;
   const double ben_ns = solve_from_config( root_ns , "BSPar_benders_milp.txt" ,
 					   st_ns );
+  ok_ns = ( rel( ref_ns , ben_ns ) <= tol );
   std::cout << "Benders(MILP,feas-cuts,no-slack) = " << ben_ns
             << "   ref = " << ref_ns
-            << ( rel( ref_ns , ben_ns ) <= tol ? "   -> OK" : "   -> FAIL" )
-            << std::endl;
+            << ( ok_ns ? "   -> OK" : "   -> FAIL" ) << std::endl;
   }
  catch( const std::exception & e ) {
-  std::cout << "Benders(MILP,feas-cuts,no-slack): skipped (known limitation) - "
-            << e.what() << std::endl;
+  std::cout << "Benders(MILP,feas-cuts,no-slack): skipped, the subproblem "
+               "Solver gives no certificate - " << e.what() << std::endl;
   }
 
  // ----- compare ( optimality-cut cases, the supported ones ) ------------- #
@@ -340,7 +342,7 @@ int main( void )
 	       && ( rel( ref2 , ben_s2 ) <= tol );
  std::cout << "2-scenario: " << ( ok2 ? "-> OK" : "-> FAIL" ) << std::endl;
 
- const bool ok = ok1 && ok2;
+ const bool ok = ok1 && ok2 && ok_ns;
 
  delete root_s2;
  delete root_m2;

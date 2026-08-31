@@ -176,7 +176,22 @@ namespace SMSpp_di_unipi_it
  *
  * - the subproblems must be *convex* (typically LP), so that the LP-dual
  *   based Benders cuts are valid; integer subproblems (combinatorial /
- *   logic-based Benders) are not supported yet. */
+ *   logic-based Benders) are not supported yet.
+ *
+ * Note that both kinds of cut are duals of the subproblem, hence the Solver
+ * that is given to it has to be asked for a *vertex* solution: an
+ * interior-point one has optimal but non-basic duals, which give a valid yet
+ * weaker optimality cut, and above all it proves infeasibility without
+ * producing the unbounded dual direction, i.e., the Farkas certificate, that
+ * the feasibility cut is. The same happens if the infeasibility is detected
+ * by the presolve rather than by the simplex, whence the presolve of the
+ * subproblem Solver has to be switched off if feasibility cuts are wanted at
+ * all; if the certificate is missing, exception is thrown rather than
+ * silently converging to a wrong optimum. Note that a subproblem that is
+ * always feasible, e.g. because the constraints that the master can make
+ * unsatisfiable carry a slack with a large cost, needs no feasibility cut in
+ * the first place, and is therefore the robust choice whenever the model
+ * allows it. */
 
 class BendersDecompositionSolver : public CDASolver
 {

@@ -39,6 +39,18 @@ factory and configured via `Configuration`, so that how the master and the
 subproblems are solved is not hard-wired. See the class documentation for the
 full description of the assumptions, parameters and solution recovery.
 
+Both kinds of cut are duals of the subproblem, so the `Solver` given to it has
+to be asked for a *vertex* solution: an interior-point one has optimal but
+non-basic duals, giving a valid yet weaker optimality cut, and it proves
+infeasibility without producing the Farkas certificate that the feasibility cut
+is. The certificate only exists if the infeasibility is proved by the simplex,
+hence the presolve of the subproblem `Solver` has to be switched off as well;
+if it is missing, an exception is thrown rather than silently converging to a
+wrong optimum. A subproblem that is always feasible, e.g. because the
+constraints the master can make unsatisfiable carry a slack with a large cost,
+needs no feasibility cut in the first place and is therefore the robust choice
+whenever the model allows it.
+
 The method is described in
 
 W. van Ackooij, A. Frangioni, W. de Oliveira "Inexact Stabilized Benders'

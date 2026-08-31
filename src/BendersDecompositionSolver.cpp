@@ -708,10 +708,12 @@ int BendersDecompositionSolver::solve_MILP_master( void )
                                std::to_string( k ) ) );
 
      throw( std::logic_error( _prfx + "subproblem " + std::to_string( k ) +
-                              " is infeasible and its Solver provides no "
-                              "unboundedness certificate, hence no "
-                              "feasibility cut can be generated: use an "
-                              "always-feasible subproblem instead" ) );
+                              " is infeasible and its Solver gives no "
+                              "unbounded dual direction, hence no feasibility "
+                              "cut can be generated: the certificate only "
+                              "exists if the infeasibility is proved by the "
+                              "simplex, so ask the subproblem Solver for it "
+                              "and switch its presolve off" ) );
      }
 
    std::vector< double > g( nx , 0 );
