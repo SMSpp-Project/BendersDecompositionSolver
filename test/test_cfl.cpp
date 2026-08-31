@@ -190,7 +190,8 @@ static AbstractBlock * build_structured( CFLB * B , double M )
 /*--------------------------------------------------------------------------*/
 
 static double solve( AbstractBlock * block , const std::string & cfg ,
-		     double & seconds )
+		     double & seconds , int * status = nullptr ,
+		     double * ub = nullptr )
 {
  auto c = Configuration::deserialize( cfg );
  auto bsc = dynamic_cast< BlockSolverConfig * >( c );
@@ -198,10 +199,18 @@ static double solve( AbstractBlock * block , const std::string & cfg ,
  bsc->apply( block );
  auto solver = block->get_registered_solvers().front();
  auto t0 = std::chrono::steady_clock::now();
- solver->compute( false );
+ const int st = solver->compute( false );
  auto t1 = std::chrono::steady_clock::now();
  seconds = std::chrono::duration< double >( t1 - t0 ).count();
+
+ /* The bound the Solver reports is only the optimum if it says it converged:
+  * with the two of them, and the status, a value that is off tells whether
+  * the Solver stopped early or believes what it says. */
+
  const double lb = solver->get_lb();
+ if( status ) *status = st;
+ if( ub ) *ub = solver->get_ub();
+
  bsc->clear();
  delete bsc;
  return( lb );
@@ -257,16 +266,25 @@ int main( int argc , char ** argv )
  double t_ref;
  const double ref = solve( mono , "BSPar_sub.txt" , t_ref );
 
- // ----- ad-hoc Benders: CapacitatedFacilityLocationBlock BenForm ---------- #
+ /* The ad hoc Benders of CapacitatedFacilityLocationBlock is the reference
+  * this Solver is measured against, but on a large instance it takes tens of
+  * minutes: any second argument skips it, so that the Solver alone can be
+  * looked at without paying for it. */
+ const bool with_benform = ( argc <= 2 );
+
  auto Bben = new CFLB();
- Bben->Block::load( fn , 'C' );
- double t_ben;
- const double ben = solve_benform( Bben , t_ben );
+ double t_ben = 0 , ben = 0;
+ if( with_benform ) {
+  Bben->Block::load( fn , 'C' );
+  ben = solve_benform( Bben , t_ben );
+  }
 
  // ----- BDS + BundleSolver on the solver-agnostic 2-level model ----------- #
  auto root = build_structured( B , M );
- double t_bds;
- const double bds = solve( root , "BSPar_benders_convex.txt" , t_bds );
+ double t_bds , ub_bds;
+ int st_bds;
+ const double bds = solve( root , "BSPar_benders_convex.txt" , t_bds ,
+                           & st_bds , & ub_bds );
 
  // ----- compare ---------------------------------------------------------- #
  const double tol = 1e-5;
@@ -274,14 +292,15 @@ int main( int argc , char ** argv )
   return( std::abs( ref - v )
 	  / std::max( 1.0 , std::max( std::abs( ref ) , std::abs( v ) ) ) );
   };
- const double e_ben = rel( ben ) , e_bds = rel( bds );
+ const double e_ben = with_benform ? rel( ben ) : 0 , e_bds = rel( bds );
  const bool ok = ( e_ben <= tol ) && ( e_bds <= tol );
  std::cout.precision( 10 );
- std::cout << "monolithic LP   = " << ref << "  ( " << t_ref << " s )\n"
-           << "CFLB BenForm    = " << ben << "  ( " << t_ben << " s )  err "
-           << e_ben << "\n"
-           << "BDS+Bundle      = " << bds << "  ( " << t_bds << " s )  err "
-           << e_bds << "\n"
+ std::cout << "monolithic LP   = " << ref << "  ( " << t_ref << " s )\n";
+ if( with_benform )
+  std::cout << "CFLB BenForm    = " << ben << "  ( " << t_ben << " s )  err "
+            << e_ben << "\n";
+ std::cout << "BDS+Bundle      = " << bds << "  ( " << t_bds << " s )  err "
+           << e_bds << " , status " << st_bds << " , ub " << ub_bds << "\n"
            << ( ok ? "-> OK ( same model )" : "-> FAIL" ) << std::endl;
 
  delete root;
