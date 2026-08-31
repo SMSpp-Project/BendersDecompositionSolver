@@ -259,6 +259,28 @@ int main( int argc , char ** argv )
  std::cout << "SMOSolver        = " << smo << "  ( " << t_smo << " s )"
            << std::endl;
 
+ // ----- the other yardstick: LIBSVM, if SVMBlock was built with it ------- #
+
+ double lsvm = smo , t_lsvm = 0;
+ bool has_lsvm = false;
+
+ if( auto probe = Solver::new_Solver( "LIBSVMSolver" ) ) {
+  delete probe;
+  has_lsvm = true;
+
+  SVCBlock lsv;
+  lsv.set_kernel( SVMBlock::kLinear );
+  lsv.set_C( 1 );
+  lsv.load( n , m , X , y );
+
+  int st_lsvm;
+  lsvm = solve_from_config( & lsv , "BSPar_svm_libsvm.txt" , st_lsvm ,
+                            t_lsvm );
+
+  std::cout << "LIBSVMSolver     = " << lsvm << "  ( " << t_lsvm << " s )"
+            << std::endl;
+  }
+
  // ----- the consensus structure under a Lagrangian Solver ---------------- #
 
  SVCBlock cns;
@@ -314,7 +336,8 @@ int main( int argc , char ** argv )
  std::cout << "Benders          = " << bd << "  ( " << t_bd << " s , err "
            << e_bd << " , status " << st_bd << " )" << std::endl;
 
- const bool ok = ( e_ld <= tol ) && ( e_bd <= tol );
+ const bool ok = ( e_ld <= tol ) && ( e_bd <= tol ) &&
+                 ( ( ! has_lsvm ) || ( rel( smo , lsvm ) <= tol ) );
  std::cout << ( ok ? "-> OK ( the two decompositions agree )"
                    : "-> FAIL" ) << std::endl;
 
