@@ -53,16 +53,22 @@ using CFLB = CapacitatedFacilityLocationBlock;
 
 // big-M cost of an unserved-demand slack, large enough never to be used at the
 // optimum, making the transportation subproblem always feasible
+/* It has to dominate the cost of serving one customer, whichever facility
+ * serves it, and nothing more: the *sum* of all the costs would do as well in
+ * theory, but it grows with the instance, and a big-M orders of magnitude
+ * larger than the optimum makes every relative tolerance meaningless, the
+ * solvers declaring convergence on a value that is all slack. */
 
 static double big_M( CFLB * B )
 {
- double s = 1;
+ double m = 0;
  for( CFLB::Index i = 0 ; i < B->get_NFacilities() ; ++i ) {
-  s += B->get_Fixed_Cost( i );
+  m = std::max( m , B->get_Fixed_Cost( i ) );
   for( CFLB::Index j = 0 ; j < B->get_NCustomers() ; ++j )
-   s += B->get_Transportation_Cost( i , j );
+   m = std::max( m , B->get_Transportation_Cost( i , j ) );
   }
- return( s );
+
+ return( 10 * ( m + 1 ) );
  }
 
 /*--------------------------------------------------------------------------*/
