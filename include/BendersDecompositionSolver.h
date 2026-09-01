@@ -281,6 +281,19 @@ class BendersDecompositionSolver : public CDASolver
 
  void get_dual_solution( Configuration * solc = nullptr ) override;
 
+/*--------------------------------------------------------------------------*/
+ /// the number of iterations of the cutting-plane loop
+ /** The loop is run by the Solver of the master, be it the bundle of the
+  * convex regime or this Solver itself in the MILP one, so the count is that
+  * of the master Solver; it is zero if the master has not been built yet. */
+
+ long get_elapsed_iterations( void ) const override;
+
+/*--------------------------------------------------------------------------*/
+ /// the time spent in the cutting-plane loop, master and subproblems
+
+ double get_elapsed_time( void ) const override;
+
 /** @} ---------------------------------------------------------------------*/
 /*-------------------- METHODS FOR HANDLING PARAMETERS ---------------------*/
 /*--------------------------------------------------------------------------*/

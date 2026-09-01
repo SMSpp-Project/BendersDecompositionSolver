@@ -232,6 +232,22 @@ void BendersDecompositionSolver::get_dual_solution( Configuration * solc )
  }  // end( BendersDecompositionSolver::get_dual_solution )
 
 /*--------------------------------------------------------------------------*/
+
+long BendersDecompositionSolver::get_elapsed_iterations( void ) const
+{
+ return( f_master_solver ? f_master_solver->get_elapsed_iterations() : 0 );
+
+ }  // end( BendersDecompositionSolver::get_elapsed_iterations )
+
+/*--------------------------------------------------------------------------*/
+
+double BendersDecompositionSolver::get_elapsed_time( void ) const
+{
+ return( f_master_solver ? f_master_solver->get_elapsed_time() : 0 );
+
+ }  // end( BendersDecompositionSolver::get_elapsed_time )
+
+/*--------------------------------------------------------------------------*/
 /*------------------------- HANDLING PARAMETERS ----------------------------*/
 /*--------------------------------------------------------------------------*/
 
