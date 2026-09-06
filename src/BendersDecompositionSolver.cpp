@@ -889,6 +889,15 @@ void BendersDecompositionSolver::acquire_master_solver( void )
                                 "CDASolver" ) );
   }
 
+ /* The master Solver writes on the same stream as this one, without which
+  * the cutting-plane loop is silent about the only thing that can go wrong
+  * in it, i.e., the master problem; this happens *before* the ComputeConfig
+  * is applied, so that a configuration naming a log of its own has the last
+  * word, as a configuration always has. */
+
+ if( f_log )
+  f_master_solver->set_log( f_log );
+
  if( auto cc = bsc->get_SolverConfig( 0 ) )
   f_master_solver->set_ComputeConfig( cc );
 
@@ -900,13 +909,6 @@ void BendersDecompositionSolver::acquire_master_solver( void )
 
  if( ! f_ignored.empty() )
   f_master_solver->set_excluded_blocks( & f_ignored );
-
- /* the master Solver writes on the same stream as this one: without it the
-  * cutting-plane loop is silent about the only thing that can go wrong in
-  * it, i.e., the master problem */
-
- if( f_log )
-  f_master_solver->set_log( f_log );
 
  f_master->register_Solver( f_master_solver );
 
