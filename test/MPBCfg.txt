@@ -54,12 +54,20 @@ Method        1   # 0 = primal, 1 = dual simplex, 2 = barrier: the multipliers
 Presolve      0   # 0 = off, 1 = conservative, 2 = aggressive (default -1)
 NumericFocus  3   # 0 = auto (default), 1..3 = increasing precision focus
 
-3 # number of double parameters
+5 # number of double parameters
 
 # now all the double parameters
 dblRelAcc       1e-08 # relative accuracy required to solution
 dblAAccSol      1e-08 # absolute accuracy required to solution
 dblRAccSol      1e-08 # relative accuracy of the solution pool
+
+# The master has to satisfy its own rows *tighter* than the oracle satisfies
+# its own feasibility, or the loop cannot end: a step that violates a
+# vertical row by less than the default 1e-6 is feasible for the master and
+# infeasible for the subproblem, which answers with the very cut that is
+# already there, and the same iteration repeats forever.
+FeasibilityTol  1e-09 # how much a row of the master may be violated
+OptimalityTol   1e-09 # how much a reduced cost of the master may be off
 
 # All specific HiGHS parameter (uncomment based on Solver)
 #primal_feasibility_tolerance     1e-9
