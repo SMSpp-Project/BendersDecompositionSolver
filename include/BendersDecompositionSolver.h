@@ -76,6 +76,8 @@
 
 #include <map>
 
+#include <unordered_set>
+
 /*--------------------------------------------------------------------------*/
 /*--------------------------- NAMESPACE ------------------------------------*/
 /*--------------------------------------------------------------------------*/
@@ -169,6 +171,29 @@ namespace SMSpp_di_unipi_it
  * created via the Solver factory and configured via Configuration, so that
  * "how the master is solved" is not hard-wired (see str_BDSlv_MSName).
  *
+ * Where the master is assembled differs, too, because the two regimes need
+ * to add different things to (B), and adding something to a Block, which is
+ * the jealous guardian of its own contents, means embedding it into a larger
+ * one:
+ *
+ * - in the MILP regime what is added are the epigraph Variable and the cuts,
+ *   which do not belong to (B) at all: the master is therefore a Block of
+ *   this Solver's own, holding them, into which (B) is *grafted* as its only
+ *   sub-Block. The master Solver sees the x, the X and the d( x ) through
+ *   (B), and (B) is left exactly as it was, whence *any* Block can be the
+ *   root here;
+ *
+ * - in the convex regime what is added are the sub-Block carrying the value
+ *   functions, and they have to be sub-Block of the Block that holds the x,
+ *   for that is the structure a bundle-type Solver reads: the master is (B)
+ *   itself, which therefore has to be an AbstractBlock, the only Block that
+ *   lets a Solver add a sub-Block to it.
+ *
+ * In neither regime are the subproblems removed from (B): they now live
+ * inside the BendersBFunction, and are declared *excluded* to the master
+ * Solver [see Solver::set_excluded_blocks()], which is what "the master does
+ * not see them" means without (B) having to be mutilated to say it.
+ *
  * Current limitations (each is meant to become a pluggable extension point):
  *
  * - the coupling of each subproblem to x must be *affine* (linear terms in x
@@ -178,20 +203,23 @@ namespace SMSpp_di_unipi_it
  *   based Benders cuts are valid; integer subproblems (combinatorial /
  *   logic-based Benders) are not supported yet.
  *
- * Note that both kinds of cut are duals of the subproblem, hence the Solver
- * that is given to it has to be asked for a *vertex* solution: an
- * interior-point one has optimal but non-basic duals, which give a valid yet
- * weaker optimality cut, and above all it proves infeasibility without
- * producing the unbounded dual direction, i.e., the Farkas certificate, that
- * the feasibility cut is. The same happens if the infeasibility is detected
- * by the presolve rather than by the simplex, whence the presolve of the
- * subproblem Solver has to be switched off if feasibility cuts are wanted at
- * all; if the certificate is missing, exception is thrown rather than
+ * Both kinds of cut are duals of the subproblem, but they ask different things
+ * of the Solver that produces them. The optimality cut is a linearization of
+ * the value function, and *any* optimal dual solution gives a valid one,
+ * basic or not: an interior-point method, whose solution is "central" rather
+ * than a vertex, is not only allowed but can be expected to give stronger
+ * cuts. The feasibility cut, instead, *is* the unbounded dual direction, i.e.,
+ * the Farkas certificate, and that one only exists if the infeasibility is
+ * proved by the simplex: an interior-point method proves it without producing
+ * any, and so does a presolve that detects it first, whence the presolve of
+ * the subproblem Solver has to be switched off if feasibility cuts are wanted
+ * at all. If the certificate is missing, exception is thrown rather than
  * silently converging to a wrong optimum. Note that a subproblem that is
  * always feasible, e.g. because the constraints that the master can make
  * unsatisfiable carry a slack with a large cost, needs no feasibility cut in
  * the first place, and is therefore the robust choice whenever the model
- * allows it. */
+ * allows it, nothing being then asked of the subproblem Solver beyond
+ * solving it. */
 
 class BendersDecompositionSolver : public CDASolver
 {
@@ -398,16 +426,30 @@ class BendersDecompositionSolver : public CDASolver
  /// run the outer Benders cut loop driving the MILP master
  int solve_MILP_master( void );
 
+ /// give (B) back what belongs to it and release what this Solver owns
+ /** Undoes what reformulate() has assembled: the master Solver is released,
+  * each subproblem is given back to (B), which is its owner, and the master
+  * Block is dismantled, i.e., deleted if this Solver has built it and
+  * stripped of the value-function sub-Block if it is (B) itself.
+  *
+  * What is *not* undone is the reformulation of the subproblems: the x terms
+  * that have been stripped out of their Constraint stay inside the
+  * BendersBFunction, i.e., (B) is consumed by this Solver as far as the
+  * coupling Constraint are concerned. */
+
+ void dismantle( void );
+
  /// translate the master x and the subproblem y^k back into (B)
  void map_back_solution( void );
 
- /// create the master Solver out of str_Mstr_BSCfg and register it to (B)
+ /// create the master Solver out of str_Mstr_BSCfg and register it
  /** Creates the Solver named by the BlockSolverConfig in str_Mstr_BSCfg,
-  * gives it the corresponding ComputeConfig and registers it to the master
-  * Block. The Solver is registered *additively*, i.e., by hand rather than by
-  * applying the BlockSolverConfig: applying it would replace the Solver
-  * registered to (B), which is this BendersDecompositionSolver, and destroy
-  * it in the middle of its own compute(). */
+  * gives it the corresponding ComputeConfig, tells it which sub-Block it has
+  * to ignore and registers it to the master Block. The Solver is registered
+  * *additively*, i.e., by hand rather than by applying the
+  * BlockSolverConfig: applying it would replace the Solver registered to
+  * (B), which is this BendersDecompositionSolver, and destroy it in the
+  * middle of its own compute(). */
 
  void acquire_master_solver( void );
 
@@ -431,14 +473,28 @@ class BendersDecompositionSolver : public CDASolver
 /*----------------------- PROTECTED FIELDS ---------------------------------*/
 /*--------------------------------------------------------------------------*/
 
- /// the internal master Block representing (O') (an AbstractBlock)
+ /// the master Block representing (O'): (B) itself, or a Block of this own
  AbstractBlock * f_master{};
+
+ /// the sub-Block of (B) the master Solver has to ignore
+ /** The subproblems now live inside the BendersBFunction, but they are still
+  * sub-Block of (B): rather than being removed from it, which only an
+  * AbstractBlock would allow and which would mutilate (B), they are declared
+  * excluded to the master Solver [see Solver::set_excluded_blocks()]. */
+
+ std::unordered_set< Block * > f_ignored;
+
+ /// the father (B) had before being grafted into the master, if it was
+ Block * f_Block_father{};
 
  /// the master Solver, created via factory and attached to f_master
  CDASolver * f_master_solver{};
 
  /// one BendersBFunction v^k( x ) per sub-Block of (B)
  std::vector< BendersBFunction * > v_BF;
+
+ /// the sub-Block carrying the value functions in the convex master
+ std::vector< AbstractBlock * > v_wrap;
 
  /// the complicating (first-stage) Variable x, in master order
  std::vector< ColVariable * > v_x;

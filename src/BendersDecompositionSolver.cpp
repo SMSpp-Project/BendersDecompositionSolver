@@ -32,6 +32,8 @@
 
 #include "SMSTypedefs.h"
 
+#include <algorithm>
+
 /*--------------------------------------------------------------------------*/
 /*-------------------------- NAMESPACE & USING -----------------------------*/
 /*--------------------------------------------------------------------------*/
@@ -75,32 +77,7 @@ BendersDecompositionSolver::BendersDecompositionSolver( void )
 
 BendersDecompositionSolver::~BendersDecompositionSolver( void )
 {
- /* The reformulation transforms (B) rather than copying it: the x terms are
-  * stripped out of the Constraint of the subproblems, which are moved inside
-  * the BendersBFunction, and the master is (B) itself. Undoing all this is
-  * not attempted, the Block being *consumed* by the Solver; what is done here
-  * is releasing what this Solver owns, and only that.
-  *
-  * Who owns the BendersBFunction depends on the regime: in the convex one
-  * each of them is the Function of the Objective of a sub-Block of the
-  * master, hence it goes with the master; in the MILP one nobody else has
-  * them. In both cases deleting a BendersBFunction deletes the subproblem it
-  * holds. The epigraph Variable and the cuts, instead, are referred to by the
-  * master, which outlives this Solver, and are therefore left where they
-  * are. */
-
- if( f_master_solver ) {
-  if( f_master )
-   f_master->unregister_Solver( f_master_solver );
-  delete f_master_solver;
-  f_master_solver = nullptr;
-  }
-
- if( f_regime == eMILPMaster )
-  for( auto bf : v_BF )
-   delete bf;
-
- v_BF.clear();
+ dismantle();
 
  }  // end( BendersDecompositionSolver::~BendersDecompositionSolver )
 
@@ -111,11 +88,81 @@ void BendersDecompositionSolver::set_Block( Block * block )
  if( block == f_Block )  // nothing to do
   return;
 
+ dismantle();   // whatever was assembled around the previous (B) goes
+
  CDASolver::set_Block( block );
 
  if( block )
   reformulate();
  }
+
+/*--------------------------------------------------------------------------*/
+
+void BendersDecompositionSolver::dismantle( void )
+{
+ if( ! f_reformulated )   // there is nothing to dismantle
+  return;
+
+ if( f_master_solver ) {
+  if( f_master )
+   f_master->unregister_Solver( f_master_solver );
+  delete f_master_solver;
+  f_master_solver = nullptr;
+  }
+
+ /* Each subproblem is owned by (B), which still has it among its sub-Block:
+  * the BendersBFunction has to let go of it, or it would be deleted twice.
+  * Giving it back means restoring its father, too, a BendersBFunction being
+  * a Block itself and having made itself the father when it took it in. */
+
+ for( auto bf : v_BF )
+  if( auto sub = bf ? bf->get_inner_block() : nullptr ) {
+   bf->set_inner_block( nullptr , false );
+   sub->set_f_Block( f_Block );
+   }
+
+ if( f_master == f_Block ) {
+  /* The value-function sub-Block have been added to (B), and each of them
+   * owns, through its Objective, the BendersBFunction it carries: deleting
+   * them is deleting those, and (B) is left with the sub-Block it had. */
+
+  auto & nested = f_master->access_nested_Blocks();
+  for( auto wrap : v_wrap )
+   nested.erase( std::remove( nested.begin() , nested.end() , wrap ) ,
+                 nested.end() );
+
+  for( auto wrap : v_wrap )
+   delete wrap;
+
+  v_wrap.clear();
+  }
+ else {
+  /* The master is this Solver's own, and so are the BendersBFunction, which
+   * nothing else refers to: deleting the master disposes of the epigraph
+   * Variable, of the cuts and of the Objective they enter, and (B) has to be
+   * un-grafted from it first, or it would be deleted with it. */
+
+  for( auto bf : v_BF )
+   delete bf;
+
+  f_master->access_nested_Blocks().clear();
+  if( f_Block )
+   f_Block->set_f_Block( f_Block_father );
+  delete f_master;
+  v_eta = nullptr;
+  v_cuts = nullptr;
+  }
+
+ v_BF.clear();
+ f_ignored.clear();
+ v_x.clear();
+ x_index.clear();
+ f_master = nullptr;
+ f_Block_father = nullptr;
+ f_reformulated = false;
+ f_solved = false;
+
+ }  // end( BendersDecompositionSolver::dismantle )
 
 /*--------------------------------------------------------------------------*/
 /*------------------------ SOLVING THE Block -------------------------------*/
@@ -193,9 +240,12 @@ bool BendersDecompositionSolver::has_var_solution( void )
 
 void BendersDecompositionSolver::get_var_solution( Configuration * solc )
 {
- /* The x are written into (B) by the master Solver, since the master *is*
-  * (B); the y^k of each subproblem are written into the inner Block, which
-  * holds the very Variable the original sub-Block had. */
+ /* The x are written into (B) by the master Solver, which has (B) either as
+  * the Block it is attached to or as its only sub-Block; the y^k of each
+  * subproblem are written into the inner Block, which holds the very
+  * Variable the original sub-Block had. Note that in the MILP regime a
+  * Configuration addressing a sub-Block by position refers to the master,
+  * where (B) is the first sub-Block. */
 
  if( f_master_solver )
   f_master_solver->get_var_solution( solc );
@@ -430,8 +480,16 @@ void BendersDecompositionSolver::reformulate( void )
 
  v_BF.assign( K , nullptr );
 
- for( Index k = 0 ; k < K ; ++k )
+ /* Once its Variable are projected out, a subproblem is no longer a part of
+  * the master problem, but it is still a sub-Block of (B): it is the master
+  * Solver that has to be told not to look at it. */
+
+ f_ignored.clear();
+
+ for( Index k = 0 ; k < K ; ++k ) {
+  f_ignored.insert( f_Block->get_nested_Block( k ) );
   build_BendersBFunction( k );
+  }
 
  /* Each subproblem needs a Solver of its own, since evaluating the value
   * function means solving it: which one is a Configuration matter, so that
@@ -551,7 +609,12 @@ void BendersDecompositionSolver::build_convex_master( void )
   * with no Variable and no Constraint and an Objective that *is* the value
   * function. This is the structure a bundle-type Solver expects of a
   * sum-function: a linear term at the root plus one C05Function component
-  * per sub-Block. */
+  * per sub-Block.
+  *
+  * The subproblems are not removed from (B): they are the sub-Block the
+  * master Solver is told to ignore [see acquire_master_solver()], so that
+  * (B) keeps owning them and the value-function sub-Block are simply added
+  * next to them. */
 
  f_master = dynamic_cast< AbstractBlock * >( f_Block );
  if( ! f_master )
@@ -559,11 +622,11 @@ void BendersDecompositionSolver::build_convex_master( void )
                            "into the Block, which therefore has to be an "
                            "AbstractBlock" ) );
 
- auto & nested = f_master->access_nested_Blocks();
- nested.clear();
-
  const bool mx = f_master->get_objective() &&
                  ( f_master->get_objective()->get_sense() == Objective::eMax );
+
+ v_wrap.clear();
+ v_wrap.reserve( v_BF.size() );
 
  for( auto bf : v_BF ) {
   auto wrap = new AbstractBlock( f_master );
@@ -571,6 +634,7 @@ void BendersDecompositionSolver::build_convex_master( void )
   obj->set_sense( mx ? Objective::eMax : Objective::eMin , eNoMod );
   wrap->set_objective( obj , eNoMod );
   f_master->add_nested_Block( wrap );
+  v_wrap.push_back( wrap );
   }
 
  }  // end( BendersDecompositionSolver::build_convex_master )
@@ -582,41 +646,24 @@ void BendersDecompositionSolver::build_MILP_master( void )
  static const std::string _prfx =
                          "BendersDecompositionSolver::build_MILP_master: ";
 
- /* The master is (B) itself, as in the convex regime, save that the value
-  * functions are not handed to the master Solver as Objective: they are
-  * inner-approximated by the Benders cuts, which are dynamic Constraint on
-  * an epigraph Variable each, and it is this Solver that adds them. */
+ /* What the MILP regime adds to (B) are the epigraph Variable and the cuts,
+  * neither of which belongs to (B): the master is therefore a Block of this
+  * Solver's own, holding them, into which (B) is grafted as its only
+  * sub-Block. The master Solver reads the x, the first-stage Constraint X
+  * and the Objective d( x ) out of (B), which is left exactly as it is: its
+  * Objective is not touched, hence it can be of whatever kind the master
+  * Solver takes, linear as in the combinatorial problems the method is
+  * classically applied to, or quadratic as whenever the master carries a
+  * regularisation term. */
 
- f_master = dynamic_cast< AbstractBlock * >( f_Block );
- if( ! f_master )
-  throw( std::logic_error( _prfx + "the MILP master has to be assembled into "
-                           "the Block, which therefore has to be an "
-                           "AbstractBlock" ) );
-
- auto obj = dynamic_cast< FRealObjective * >( f_master->get_objective() );
- if( ! obj )
-  throw( std::logic_error( _prfx + "the Objective of the master is not a "
-                           "FRealObjective" ) );
-
- if( obj->get_sense() != Objective::eMin )
+ if( f_Block->get_objective_sense() != Objective::eMin )
   throw( std::logic_error( _prfx + "only a minimising master is supported, "
                            "the epigraph Variable of a maximising one taking "
                            "an initial bound that is problem-dependent" ) );
 
- /* The Objective of the master is not touched save for the epigraph
-  * Variable, which enter it linearly: it can therefore be linear, as it is
-  * in the combinatorial problems the method is classically applied to, or
-  * quadratic, as it is whenever the master carries a regularisation term. */
-
- auto lf = dynamic_cast< LinearFunction * >( obj->get_function() );
- auto qf = dynamic_cast< DQuadFunction * >( obj->get_function() );
-
- if( ! ( lf || qf ) )
-  throw( std::logic_error( _prfx + "the Objective of the master is neither "
-                           "linear nor quadratic separable" ) );
-
- auto & nested = f_master->access_nested_Blocks();
- nested.clear();
+ f_master = new AbstractBlock;
+ f_Block_father = f_Block->get_f_Block();
+ f_master->add_nested_Block( f_Block );
 
  /* One epigraph Variable per subproblem, or a single one for all of them if
   * the cuts are aggregated. They are bounded below by zero, which is what
@@ -635,11 +682,20 @@ void BendersDecompositionSolver::build_MILP_master( void )
 
  f_master->add_static_variable( *v_eta , "eta" );
 
+ /* The epigraph Variable enter the Objective linearly and with coefficient
+  * one: since the Objective of the whole master is the sum of those of the
+  * Block it is made of, this is an Objective of the master Block alone, and
+  * the one of (B) stays what it was. */
+
+ LinearFunction::v_coeff_pair cp;
+ cp.reserve( neta );
  for( auto & eta : *v_eta )
-  if( lf )
-   lf->add_variable( & eta , 1 , eNoMod );
-  else
-   qf->add_variable( & eta , 1 , 0 , eNoMod );
+  cp.emplace_back( & eta , 1 );
+
+ auto obj = new FRealObjective( f_master ,
+                                new LinearFunction( std::move( cp ) ) );
+ obj->set_sense( Objective::eMin , eNoMod );
+ f_master->set_objective( obj , eNoMod );
 
  v_cuts = new std::list< FRowConstraint >;
  f_master->add_dynamic_constraint( *v_cuts , "cuts" );
@@ -783,10 +839,11 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
 void BendersDecompositionSolver::map_back_solution( void )
 {
- /* Nothing has to be moved around: the master *is* (B), hence the optimal x
-  * are written by the master Solver into the very Variable of (B), and the
-  * y^k are written by the Solver of each subproblem into the Variable of the
-  * inner Block, which are the ones of the original sub-Block. */
+ /* Nothing has to be moved around: the x of the master *are* the Variable of
+  * (B), whether the master is (B) itself or the Block it has been grafted
+  * into, and the y^k are written by the Solver of each subproblem into the
+  * Variable of the inner Block, which are the ones of the original
+  * sub-Block. */
 
  }  // end( BendersDecompositionSolver::map_back_solution )
 
@@ -836,6 +893,20 @@ void BendersDecompositionSolver::acquire_master_solver( void )
   f_master_solver->set_ComputeConfig( cc );
 
  delete bsc;
+
+ /* The exclusion list has to be installed *before* the Solver is attached to
+  * the master, for it is at that moment that the Block tree is scanned and
+  * the model loaded: the subproblems have to be invisible already. */
+
+ if( ! f_ignored.empty() )
+  f_master_solver->set_excluded_blocks( & f_ignored );
+
+ /* the master Solver writes on the same stream as this one: without it the
+  * cutting-plane loop is silent about the only thing that can go wrong in
+  * it, i.e., the master problem */
+
+ if( f_log )
+  f_master_solver->set_log( f_log );
 
  f_master->register_Solver( f_master_solver );
 
