@@ -3,9 +3,9 @@
 #
 # A txt description of a BlockSolverConfig for the subproblem of one chunk of
 # the Benders structure of a SVM training problem, i.e., the linear program
-# giving the loss of that chunk at the model. The dual simplex is asked for
-# explicitly: the Benders cuts are the duals of this problem, and only a
-# vertex solution has the exact ones
+# giving the loss of that chunk at the model. The Benders cuts are the duals
+# of this problem; any optimal ones do, and the dual simplex is asked for
+# explicitly only to have the same duals from one run to the next
 #
 #   Donato Meoli
 #
@@ -36,7 +36,8 @@ intLogVerb        0  # LogVerb, log verbosity of the MILPSolver
 Threads           1  # one thread, so that the time is that of a sequential
                      # algorithm, as every other one here is
 intRelaxIntVars   1  # solve the continuous (LP) relaxation
-Method            1  # dual simplex, hence a vertex solution with exact duals
+Method            1  # dual simplex, so that the duals are the same at every
+                     # run: any optimal ones give a valid cut
 
 1  # number of double parameters
 
