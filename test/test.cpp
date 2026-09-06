@@ -221,7 +221,12 @@ static double solve_from_config( AbstractBlock * block , const std::string & fn 
  auto solver = block->get_registered_solvers().front();
  status = solver->compute( false );
  const double lb = solver->get_lb();
+ /* Reading the bound is all that was needed: the Solver is un-registered
+  * and deleted by applying the cleared BlockSolverConfig, which is what
+  * gives the Block back whatever the Solver had taken from it. */
+
  bsc->clear();
+ bsc->apply( block );
  delete bsc;
  return( lb );
  }

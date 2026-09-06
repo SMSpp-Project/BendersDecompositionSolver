@@ -26,12 +26,11 @@
  * altogether: that they do is the test, and how they get there is what the
  * comparison is about.
  *
- * Note that the Benders side is built here as an AbstractBlock rendition of
- * the structure the SVMBlock itself builds, rather than by attaching the
- * Solver to the SVMBlock: BendersDecompositionSolver needs to add the
- * epigraph Variable and the cuts to the master, which only an AbstractBlock
- * lets a Solver do. The rendition goes away as soon as the core lets a Solver
- * own the master and exclude the sub-Block it must not see.
+ * Both Solver are attached to a SVMBlock, the very Block that holds the data:
+ * the master of the Benders side is the SVMBlock itself, the epigraph
+ * Variable and the cuts living in the Block the Solver builds around it [see
+ * BendersDecompositionSolver], so what is compared here is one instance and
+ * two structures of it, with no rendition in between.
  *
  * \author Antonio Frangioni \n
  *         Dipartimento di Informatica \n
@@ -52,14 +51,8 @@
 #include <iostream>
 #include <random>
 
-#include "AbstractBlock.h"
 #include "BendersDecompositionSolver.h"
 #include "BlockSolverConfig.h"
-#include "DQuadFunction.h"
-#include "FRealObjective.h"
-#include "FRowConstraint.h"
-#include "LinearFunction.h"
-#include "OneVarConstraint.h"
 #include "SMOSolver.h"
 #include "SVCBlock.h"
 
@@ -94,104 +87,6 @@ static void make_data( Index n , Index m , doubleVec & X , doubleVec & y ,
  }
 
 /*--------------------------------------------------------------------------*/
-/*--------------------------- BLOCK BUILDERS -------------------------------*/
-/*--------------------------------------------------------------------------*/
-
-/// the AbstractBlock rendition of the Benders structure of \p svm
-/** Builds the very structure SVMBlock::set_structure() builds with kBenders,
- * i.e., the model and the regularisation term in the master and one sub-Block
- * per chunk holding the slacks of its samples, their margin Constraint and
- * their loss, out of the data of \p svm and of the partition it deals out. */
-
-static AbstractBlock * build_benders( const SVMBlock * svm , Index P )
-{
- const Index m = svm->get_NFeatures();
- const Index N = svm->get_NDual();
- const double rw = svm->get_reg_weight() / 2;
- const double C = svm->get_C();
-
- auto & s = svm->get_dual_signs();
- auto & di = svm->get_dual_samples();
- auto & q = svm->get_dual_costs();
-
- // the chunk of each dual index: a sample gives all of its dual indices to
- // the chunk it belongs to
- Subset smap( svm->get_NSamples() , 0 );
- for( Index p = 0 ; p < P ; ++p )
-  for( auto i : svm->get_chunk( p ) )
-   smap[ i ] = p;
-
- // ----- the master: the model and the regularisation term ---------------- #
-
- auto root = new AbstractBlock();
-
- auto w = new std::vector< ColVariable >( m );
- root->add_static_variable( *w , "w" );
-
- auto b = new ColVariable();
- root->add_static_variable( *b , "b" );
-
- DQuadFunction::v_coeff_triple triples( m + 1 );
- for( Index j = 0 ; j < m ; ++j )
-  triples[ j ] = std::make_tuple( &(*w)[ j ] , double( 0 ) , rw );
- triples[ m ] = std::make_tuple( b , double( 0 ) ,
-                                 svm->get_reg_bias() ? rw : double( 0 ) );
-
- auto robj = new FRealObjective( root ,
-                                 new DQuadFunction( std::move( triples ) ) );
- robj->set_sense( Objective::eMin );
- root->set_objective( robj );
-
- // ----- one sub-Block per chunk: the slacks and the loss ----------------- #
-
- for( Index p = 0 ; p < P ; ++p ) {
-  Subset dk;
-  for( Index k = 0 ; k < N ; ++k )
-   if( smap[ di[ k ] ] == p )
-    dk.push_back( k );
-
-  auto sub = new AbstractBlock( root );
-
-  auto xi = new std::vector< ColVariable >( dk.size() );
-  for( auto & xk : *xi )
-   xk.is_positive( true );
-  sub->add_static_variable( *xi , "xi" );
-
-  // s_k ( < w , x_{ i( k ) } > + b ) + xi_k >= r_k
-  auto cons = new std::vector< FRowConstraint >( dk.size() );
-  for( Index t = 0 ; t < dk.size() ; ++t ) {
-   const Index k = dk[ t ];
-   const double sk = s[ k ];
-   const double * xk = svm->get_x( di[ k ] );
-
-   LinearFunction::v_coeff_pair cp( m + 2 );
-   for( Index j = 0 ; j < m ; ++j )
-    cp[ j ] = std::make_pair( &(*w)[ j ] , sk * xk[ j ] );
-   cp[ m ] = std::make_pair( b , sk );
-   cp[ m + 1 ] = std::make_pair( &(*xi)[ t ] , double( 1 ) );
-
-   (*cons)[ t ].set_lhs( - q[ k ] );
-   (*cons)[ t ].set_rhs( Inf< RowConstraint::RHSValue >() );
-   (*cons)[ t ].set_function( new LinearFunction( std::move( cp ) ) );
-   }
-  sub->add_static_constraint( *cons , "cons" );
-
-  LinearFunction::v_coeff_pair lp( dk.size() );
-  for( Index t = 0 ; t < dk.size() ; ++t )
-   lp[ t ] = std::make_pair( &(*xi)[ t ] , C );
-
-  auto sobj = new FRealObjective( sub ,
-                                  new LinearFunction( std::move( lp ) ) );
-  sobj->set_sense( Objective::eMin );
-  sub->set_objective( sobj );
-
-  root->add_nested_Block( sub );
-  }
-
- return( root );
- }
-
-/*--------------------------------------------------------------------------*/
 /*------------------------------ SOLVING -----------------------------------*/
 /*--------------------------------------------------------------------------*/
 
@@ -217,7 +112,12 @@ static double solve_from_config( Block * block , const std::string & fn ,
  time = std::chrono::duration< double >(
                        std::chrono::steady_clock::now() - start ).count();
 
+ /* Reading the bound is all that was needed: the Solver is un-registered
+  * and deleted by applying the cleared BlockSolverConfig, which is what
+  * gives the Block back whatever the Solver had taken from it. */
+
  bsc->clear();
+ bsc->apply( block );
  delete bsc;
 
  return( lb );
@@ -319,12 +219,13 @@ int main( int argc , char ** argv )
  SimpleConfiguration< std::pair< int , int > > bcfg(
   std::make_pair( int( SVMBlock::kBenders ) , int( P ) ) );
  ben.set_structure( & bcfg );
-
- auto root = build_benders( & ben , P );
+ ben.generate_abstract_variables();
+ ben.generate_abstract_constraints();
+ ben.generate_objective();
 
  double t_bd;
  int st_bd;
- const double bd = solve_from_config( root , "BSPar_svm_benders.txt" , st_bd ,
+ const double bd = solve_from_config( & ben , "BSPar_svm_benders.txt" , st_bd ,
                                       t_bd );
 
  // ----- compare ---------------------------------------------------------- #
@@ -347,8 +248,6 @@ int main( int argc , char ** argv )
                  ( ( ! has_lsvm ) || ( rel( smo , lsvm ) <= tol ) );
  std::cout << ( ok ? "-> OK ( the two decompositions agree )"
                    : "-> FAIL" ) << std::endl;
-
- delete root;
 
  return( ok ? 0 : 1 );
  }
