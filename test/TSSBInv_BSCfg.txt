@@ -1,0 +1,36 @@
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - TSSBInv_BSCfg.txt - - - - - - - - - - - - - - -
+#
+# A txt description of a BlockSolverConfig for the inner Block of an
+# InvestmentFunction, i.e., the whole TwoStageStochasticBlock with the design
+# fixed at the current point.
+#
+# The linearization the InvestmentFunction hands to the bundle is built out of
+# the duals of the Constraint in which the design appears, one term per
+# scenario: any optimal duals give a valid one, and the presolve is switched
+# off and the dual simplex asked for by name only so that the linearization is
+# the same from one run to the next.
+#
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+BlockSolverConfig     # exact type of the Configuration object
+1  # the BlockSolverConfig is a "differential" one
+1 # number of (the names of) Solver in this BlockSolverConfig
+GRBMILPSolver  # name of Solver
+1 # number of ComputeConfig in this BlockSolverConfig
+ComputeConfig # exact type of the ComputeConfig object
+1  # f_diff == 0 ==> all non-provided parameters are set to the default value
+5 # number of integer parameters
+intLogVerb          0    # LogVerb, log verbosity of the MILPSolver
+intRelaxIntVars     1    # nonzero if the continuous relaxation is solved
+intCutSepPar        7    # separate user cuts + lazy constraints
+Presolve            0    # disable presolve for reproducibility
+Method              1    # dual simplex, for reproducible duals
+2 # number of double parameters
+FeasibilityTol  1e-9
+OptimalityTol   1e-9
+0 # number of string parameters
+0 # number of vector-of-int parameters
+0 # number of vector-of-double parameters
+0 # number of vector-of-string parameters
+* # [none]

@@ -119,6 +119,22 @@ if (BUILD_BundleSolver AND BUILD_MILPSolver)
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
     endif ()
 
+    # the two Benders forms of the same two-stage stochastic investment
+    # problem: the ad hoc one, an InvestmentBlock over the whole
+    # TwoStageStochasticBlock, and the generic one under this Solver, both
+    # checked against the monolithic solve of the extensive form
+    if (BUILD_InvestmentBlock)
+        add_executable(${modName}_tssb_test test/test_tssb.cpp)
+        target_link_libraries(${modName}_tssb_test PRIVATE
+                ${modNamespace}::${modName}
+                ${modNamespace}::BundleSolver
+                ${modNamespace}::MILPSolver
+                ${modNamespace}::InvestmentBlock)
+        add_test(NAME ${modName}_tssb_test
+                COMMAND ${modName}_tssb_test
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
+    endif ()
+
     # the two dual decompositions of a SVM training problem, one against the
     # other on the same instance: the consensus one under a Lagrangian Solver
     # and the Benders one under this Solver, both cross-checked against the
