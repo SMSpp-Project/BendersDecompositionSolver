@@ -50,7 +50,10 @@ intMaxThread    1 # single-threaded for deterministic master reproducibility
 Method        1   # 0 = primal, 1 = dual simplex, 2 = barrier: the multipliers
                   # of the master ARE the algorithm, and an interior point has
                   # them only to about 1e-7 relative, which the stopping test
-                  # of the bundle cannot survive: the simplex, not the barrier
+                  # of the bundle cannot survive; besides, the barrier cannot
+                  # restart from the previous basis, so it re-solves the master
+                  # from scratch at every call, while the simplex re-optimises
+                  # after the new columns for a fraction of the iterations
 Presolve      0   # 0 = off, 1 = conservative, 2 = aggressive (default -1)
 NumericFocus  3   # 0 = auto (default), 1..3 = increasing precision focus
 
