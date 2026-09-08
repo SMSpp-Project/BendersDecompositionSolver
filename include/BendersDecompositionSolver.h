@@ -242,13 +242,13 @@ namespace SMSpp_di_unipi_it
  * from an interior point as well. What does destroy it is the presolve, which
  * detects the infeasibility on the reduced problem and returns no certificate
  * for the original one, whence the presolve of the subproblem Solver has to
- * be switched off if feasibility cuts are wanted at all. If the certificate is missing, exception is thrown rather than
- * silently converging to a wrong optimum. Note that a subproblem that is
- * always feasible, e.g. because the constraints that the master can make
- * unsatisfiable carry a slack with a large cost, needs no feasibility cut in
- * the first place, and is therefore the robust choice whenever the model
- * allows it, nothing being then asked of the subproblem Solver beyond
- * solving it. */
+ * be switched off if feasibility cuts are wanted at all. If the certificate is
+ * missing, exception is thrown rather than silently converging to a wrong
+ * optimum. Note that a subproblem that is always feasible, e.g. because the
+ * constraints that the master can make unsatisfiable carry a slack with a
+ * large cost, needs no feasibility cut in the first place, and is therefore
+ * the robust choice whenever the model allows it, nothing being then asked of
+ * the subproblem Solver beyond solving it. */
 
 class BendersDecompositionSolver : public CDASolver
 {
