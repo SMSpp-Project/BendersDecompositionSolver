@@ -29,7 +29,7 @@ ComputeConfig # exact type of the ComputeConfig object
 0  # f_diff == 0 ==> all non-provided parameters are set to the default value
    # f_diff == 1 ==> all non-provided parameters are not changed
 
-4  # number of integer parameters
+5  # number of integer parameters
 
 # now all the integer parameters
 intLogVerb        0  # LogVerb, log verbosity of the MILPSolver
@@ -38,6 +38,8 @@ Threads           1  # one thread, so that the time is that of a sequential
 intRelaxIntVars   1  # solve the continuous (LP) relaxation
 Method            1  # dual simplex, so that the duals are the same at every
                      # run: any optimal ones give a valid cut
+Presolve          0  # off, or an infeasible subproblem leaves no Farkas
+                     # certificate and no feasibility cut can be generated
 
 1  # number of double parameters
 

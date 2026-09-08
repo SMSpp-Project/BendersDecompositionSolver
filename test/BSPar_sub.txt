@@ -12,16 +12,16 @@
 #   optimal dual solution does, basic or not, an interior-point one included;
 #
 # - the unbounded dual direction of an infeasible one, i.e., a Farkas
-#   certificate, which gives the feasibility cut: it exists only if the
-#   infeasibility is proved by the simplex, hence an interior-point method is
-#   out here, and the presolve, which would otherwise detect it and return no
-#   certificate at all, has to be off.
+#   certificate, which gives the feasibility cut: it is a ray of the dual
+#   polyhedron, hence any method can produce it, but the presolve cannot, it
+#   detecting the infeasibility on the reduced problem and leaving no
+#   certificate for the original one.
 #
 # With Gurobi nothing else is needed, the InfUnbdInfo parameter being set by
 # GRBMILPSolver itself; the equivalent configurations are
 #
-#   CPXMILPSolver:   CPXPARAM_Preprocessing_Presolve 0, CPXPARAM_LPMethod 2
-#   HiGHSMILPSolver: presolve off, solver simplex
+#   CPXMILPSolver:   CPXPARAM_Preprocessing_Presolve 0
+#   HiGHSMILPSolver: presolve off
 #
 # while SCIPMILPSolver has no Farkas certificate at all, its
 # has_dual_direction() being not implemented yet: with it, only subproblems
@@ -50,16 +50,17 @@ ComputeConfig # exact type of the ComputeConfig object
 0  # f_diff == 0 ==> all non-provided parameters are set to the default value
    # f_diff == 1 ==> all non-provided parameters are not changed
 
-4  # number of integer parameters
+5  # number of integer parameters
 
 # now all the integer parameters
 intLogVerb        0  # LogVerb, log verbosity of the MILPSolver
 Threads           1  # one thread, so that the time is that of a sequential
                      # algorithm, as every other one here is
 intRelaxIntVars   1  # solve the continuous (LP) relaxation
-Method            1  # dual simplex: asked for not for the optimality cuts,
-                     # which any optimal duals give, but so that an infeasible
-                     # subproblem leaves a Farkas certificate behind
+Method            1  # dual simplex: asked for reproducibility of the duals,
+                     # any optimal ones giving a valid optimality cut
+Presolve          0  # off, or an infeasible subproblem leaves no Farkas
+                     # certificate and no feasibility cut can be generated
 
 1  # number of double parameters
 
