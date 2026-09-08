@@ -2,8 +2,21 @@
 # - - - - - - - - - - - - - - BSPar_svm_master_convex.txt - - - - - - - - - - - - - - - -
 #
 # A txt description of a BlockSolverConfig for the master problem of the
-# Benders decomposition: a Block having a single BundleSolver attached, which
-# drives the (stabilized) cutting-plane loop.
+# Benders decomposition of a SVM: a Block having a single BundleSolver
+# attached, which drives the (stabilized) cutting-plane loop.
+#
+# The master carries the regularisation term as the quadratic "0-th" component
+# of its sum-function [see MasterProblemBlock::set_zeroth_quadratic()], which
+# is what the non-default values here are about. The term is (rho/2)||w||^2
+# with rho = 1 and nothing on the bias, so the proximal parameter is
+# t' = t/(1+t) < 1 on the weights and stays t on the bias: a t of the usual
+# order 1 therefore means steps of order one half on the weights and one on
+# the bias, which on this problem is far too short. Starting from a large t
+# and refusing to let it fall below 1 is what makes the difference: on 8000
+# samples in 16 chunks it is 2.8 seconds against the 1493 the file had before
+# it was tuned. The accuracy has to be relative to the values of the problem
+# as well, which are of order one here: at 1e-9 the loop keeps separating
+# cuts that say nothing.
 #
 #   Antonio Frangioni
 #   Donato Meoli
@@ -37,7 +50,8 @@ intMPStbl              0 # stabilization: 0 = proximal, 1 = level, 2 = doubly st
 intMaxIter   100000 # MaxIter, max number of iterations for each call
 intLogVerb        0 # LogVerb, log verbosity of main Bundle algorithm
 intBPar1         20 # discard items when they have been useless for <this> iterations
-intBPar2        400 # max bundle size per component
+intBPar2        100 # max bundle size per component: with one component per
+                    # chunk, 400 only makes the master QP larger
 intBPar3          1 # max n. of items to fetch from Fi() at each iteration
 intBPar4          1 # min n. of items to fetch from Fi() at each iteration
 intBPar6          0 # second parameter for dynamic max n. of items per iteration
@@ -50,9 +64,11 @@ intMaxNrEvls      2 # maximum number of function evaluations at each iteration
 15 # number of double parameters
 
 # now all the double parameters
-dblRelAcc     1e-9 # relative accuracy required to solution
+dblRelAcc     1e-6 # relative accuracy required to solution: the values are of
+                   # order one, 1e-9 asks for more than the oracle gives
 dblNZEps      1e-8 # stopping parameter: threshold to declare 0 the || residual ||
-dbltStar      1e+4 # stopping parameter: multiplied to || residual || to estimate gap
+dbltStar      1e+0 # stopping parameter: multiplied to || residual || to
+                   # estimate the gap, hence of the order of the values
 dblBPar5         4 # first parameter for dynamic max n. of items per iteration
 dblm1        -0.01 # a NS is possible if (~) Fi( Lambda1 ) >= Fi( Lambda ) + | m1 | v*
 dblm2         0.99 # a SS is possible if Fi( Lambda1 ) <= Fi( Lambda ) + ( 1 - m2 ) v*
@@ -62,8 +78,10 @@ dblmnIncr      1.5 # min increase of t (each time it is increased)
 dblmxDecr      0.1 # max decrease of t
 dblmnDecr     0.66 # min decrease of t (each time it is decreased)
 dbltMaior     1e+6 # maximum value for t
-dbltMinor     1e-4 # minimum value for t
-dbltInit         1 # initial value for t
+dbltMinor     1e+0 # minimum value for t: below one the bias, which carries no
+                   # quadratic term of its own, stops moving
+dbltInit      1e+3 # initial value for t: the quadratic 0-th component shrinks
+                   # it to t/(1+t) on the weights anyway
 dbltSPar2    0.001 # parameter for the long-term t-strategy
 
 1 # number of string parameters
