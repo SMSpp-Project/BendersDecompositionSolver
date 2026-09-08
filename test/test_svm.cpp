@@ -51,6 +51,14 @@
 #include <iostream>
 #include <random>
 
+#include "AbstractBlock.h"
+
+#include "DQuadFunction.h"
+
+#include "FRowConstraint.h"
+
+#include "LinearFunction.h"
+
 #include "BendersDecompositionSolver.h"
 #include "BlockSolverConfig.h"
 #include "SMOSolver.h"
@@ -94,7 +102,10 @@ static void make_data( Index n , Index m , doubleVec & X , doubleVec & y ,
 // lower bound together with the time it took
 
 static double solve_from_config( Block * block , const std::string & fn ,
-                                 int & status , double & time )
+                                 int & status , double & time ,
+                                 bool take_ub = false ,
+                                 long * iters = nullptr ,
+                                 long * cuts = nullptr )
 {
  auto cfg = Configuration::deserialize( fn );
  auto bsc = dynamic_cast< BlockSolverConfig * >( cfg );
@@ -106,9 +117,26 @@ static double solve_from_config( Block * block , const std::string & fn ,
  bsc->apply( block );
  auto solver = block->get_registered_solvers().front();
 
+ /* Whatever the Solver does, it has to be un-registered before the Block is
+  * touched again: a Solver that throws in the middle of taking the Block
+  * apart leaves it in the hands of nobody otherwise. */
+
+ auto give_back = [ & ]( void ) {
+  bsc->clear();
+  bsc->apply( block );
+  delete bsc;
+  };
+
  const auto start = std::chrono::steady_clock::now();
- status = solver->compute( false );
- const double lb = solver->get_lb();
+ try { status = solver->compute( false ); }
+ catch( ... ) { give_back(); throw; }
+ const double lb = take_ub ? solver->get_ub() : solver->get_lb();
+
+ if( iters )
+  *iters = solver->get_elapsed_iterations();
+ if( cuts )
+  if( auto bds = dynamic_cast< BendersDecompositionSolver * >( solver ) )
+   *cuts = bds->get_num_cuts();
  time = std::chrono::duration< double >(
                        std::chrono::steady_clock::now() - start ).count();
 
@@ -116,15 +144,100 @@ static double solve_from_config( Block * block , const std::string & fn ,
   * and deleted by applying the cleared BlockSolverConfig, which is what
   * gives the Block back whatever the Solver had taken from it. */
 
- bsc->clear();
- bsc->apply( block );
- delete bsc;
+ give_back();
 
  return( lb );
  }
 
 /*--------------------------------------------------------------------------*/
 /*--------------------------------- MAIN -----------------------------------*/
+/*--------------------------------------------------------------------------*/
+
+/*--------------------------------------------------------------------------*/
+/* The Benders structure of the SVMBlock, rendered as an AbstractBlock: the
+ * model ( w , b ) and the regularisation term stay in the root, and each
+ * chunk is a sub-Block holding the slacks of its own samples, their margin
+ * constraints and its share of the loss. It is the very same problem the
+ * SVMBlock builds with set_structure( kBenders , P ), written out by hand
+ * only because the convex master of BendersDecompositionSolver assembles
+ * itself into the root, which therefore has to be an AbstractBlock; with the
+ * master kept as a sub-Block of itself, as the design goes, this function
+ * disappears. The partition is read off the SVMBlock, so that the two are
+ * the same decomposition of the same instance. */
+
+static AbstractBlock * build_benders_abstract( SVCBlock & ben , Index n ,
+                                               Index m , const doubleVec & X ,
+                                               const doubleVec & y , double C )
+{
+ auto root = new AbstractBlock();
+
+ // the model: the weights and the bias, the latter not regularised
+ auto w = new std::vector< ColVariable >( m );
+ for( auto & wi : *w )
+  wi.is_unitary( false , eNoMod );
+ root->add_static_variable( *w , "w" );
+
+ auto b = new ColVariable();
+ b->is_unitary( false , eNoMod );
+ root->add_static_variable( *b , "b" );
+
+ // ( rho / 2 ) || w ||^2, the quadratic 0-th component of the sum-function;
+ // the bias is in it with a zero coefficient, since the component has to
+ // span the whole Lambda of the bundle
+ const double rho = ben.get_reg_weight();
+ DQuadFunction::v_coeff_triple triples( m + 1 );
+ for( Index j = 0 ; j < m ; ++j )
+  triples[ j ] = std::make_tuple( &(*w)[ j ] , 0.0 , rho / 2.0 );
+ triples[ m ] = std::make_tuple( b , 0.0 , 0.0 );
+
+ auto robj = new FRealObjective( root , new DQuadFunction(
+                                             std::move( triples ) ) );
+ robj->set_sense( Objective::eMin , eNoMod );
+ root->set_objective( robj , eNoMod );
+
+ // one sub-Block per chunk, with the samples the SVMBlock deals out to it
+ const Index P = ben.get_NChunks();
+ for( Index p = 0 ; p < P ; ++p ) {
+  const auto & smpl = ben.get_chunk( p );
+  const Index np = smpl.size();
+
+  auto sub = new AbstractBlock( root );
+
+  auto xi = new std::vector< ColVariable >( np );
+  for( auto & xk : *xi )
+   xk.is_positive( true , eNoMod );
+  sub->add_static_variable( *xi , "xi" );
+
+  // y_k ( < w , x_k > + b ) + xi_k >= 1
+  auto cons = new std::vector< FRowConstraint >( np );
+  for( Index k = 0 ; k < np ; ++k ) {
+   const Index i = smpl[ k ];
+   LinearFunction::v_coeff_pair cf;
+   cf.reserve( m + 2 );
+   for( Index j = 0 ; j < m ; ++j )
+    cf.emplace_back( &(*w)[ j ] , y[ i ] * X[ i * m + j ] );
+   cf.emplace_back( b , y[ i ] );
+   cf.emplace_back( &(*xi)[ k ] , 1.0 );
+   (*cons)[ k ].set_function( new LinearFunction( std::move( cf ) ) , eNoMod );
+   (*cons)[ k ].set_lhs( 1.0 , eNoMod );
+   (*cons)[ k ].set_rhs( Inf< double >() , eNoMod );
+   }
+  sub->add_static_constraint( *cons , "margin" );
+
+  // C sum_k xi_k, the share of the loss of this chunk
+  auto lf = new LinearFunction();
+  for( Index k = 0 ; k < np ; ++k )
+   lf->add_variable( &(*xi)[ k ] , C );
+  auto sobj = new FRealObjective( sub , lf );
+  sobj->set_sense( Objective::eMin , eNoMod );
+  sub->set_objective( sobj , eNoMod );
+
+  root->add_nested_Block( sub );
+  }
+
+ return( root );
+ }
+
 /*--------------------------------------------------------------------------*/
 
 int main( int argc , char ** argv )
@@ -137,6 +250,10 @@ int main( int argc , char ** argv )
  const Index n = ( argc > 1 ) ? std::stoi( argv[ 1 ] ) : 200;
  const Index m = ( argc > 2 ) ? std::stoi( argv[ 2 ] ) : 5;
  const Index P = ( argc > 3 ) ? std::stoi( argv[ 3 ] ) : 4;
+
+ // the Lagrangian dual is the slowest of the lot by far, hence it can be
+ // left out when only the two Benders are of interest
+ const bool do_ld = ( argc > 4 ) ? ( std::stoi( argv[ 4 ] ) != 0 ) : true;
 
  doubleVec X , y;
  make_data( n , m , X , y , 1 );
@@ -202,10 +319,10 @@ int main( int argc , char ** argv )
  cns.generate_abstract_constraints();
  cns.generate_objective();
 
- double t_ld;
- int st_ld;
- const double ld = solve_from_config( & cns , "BSPar_svm_ld.txt" , st_ld ,
-                                      t_ld );
+ double t_ld = 0;
+ int st_ld = 0;
+ const double ld = do_ld ? solve_from_config( & cns , "BSPar_svm_ld.txt" ,
+                                              st_ld , t_ld ) : smo;
 
  // ----- the Benders structure under BendersDecompositionSolver ----------- #
 
@@ -225,8 +342,38 @@ int main( int argc , char ** argv )
 
  double t_bd;
  int st_bd;
+ long it_bd = 0 , ct_bd = 0;
  const double bd = solve_from_config( & ben , "BSPar_svm_benders.txt" , st_bd ,
-                                      t_bd );
+                                      t_bd , false , & it_bd , & ct_bd );
+
+ // ----- the same, with the master given to the bundle -------------------- #
+
+ /* The regularisation term makes the master strongly convex, which is what
+  * the bundle carries as the quadratic 0-th component of its sum-function
+  * [see MasterProblemBlock::set_zeroth_quadratic()]: with the cutting plane
+  * of the MILP master the term is there but nobody knows it is, with the
+  * bundle it is what the stabilization is made of. */
+
+ /* A bundle that does not carry it throws instead, in which case the case is
+  * skipped rather than failed, exactly as the LIBSVM one above. */
+
+ double t_bdb = 0;
+ int st_bdb = 0;
+ double bdb = smo;
+ bool has_bdb = false;
+ { auto abs_ben = build_benders_abstract( ben , n , m , X , y , 1.0 );
+   try {
+    /* The bundle master minimizes, so what it converges to is its upper
+     * bound, its lower one being the model value. */
+    bdb = solve_from_config( abs_ben , "BSPar_svm_benders_convex.txt" ,
+                             st_bdb , t_bdb , true );
+    has_bdb = true;
+    }
+   catch( const std::exception & e ) {
+    std::cout << "Benders (bundle): skipped, " << e.what() << std::endl;
+    }
+   delete abs_ben;
+   }
 
  // ----- compare ---------------------------------------------------------- #
 
@@ -238,13 +385,20 @@ int main( int argc , char ** argv )
  const double tol = 1e-5;
  const double e_ld = rel( smo , ld );
  const double e_bd = rel( smo , bd );
+ const double e_bdb = rel( smo , bdb );
 
- std::cout << "Lagrangian dual  = " << ld << "  ( " << t_ld << " s , err "
-           << e_ld << " , status " << st_ld << " )" << std::endl;
+ if( do_ld )
+  std::cout << "Lagrangian dual  = " << ld << "  ( " << t_ld << " s , err "
+            << e_ld << " , status " << st_ld << " )" << std::endl;
+ if( has_bdb )
+  std::cout << "Benders (bundle) = " << bdb << "  ( " << t_bdb << " s , err "
+            << e_bdb << " , status " << st_bdb << " )" << std::endl;
+
  std::cout << "Benders          = " << bd << "  ( " << t_bd << " s , err "
-           << e_bd << " , status " << st_bd << " )" << std::endl;
+           << e_bd << " , status " << st_bd << " , " << it_bd << " rounds , "
+           << ct_bd << " cuts )" << std::endl;
 
- const bool ok = ( e_ld <= tol ) && ( e_bd <= tol ) &&
+ const bool ok = ( e_ld <= tol ) && ( e_bd <= tol ) && ( e_bdb <= tol ) &&
                  ( ( ! has_lsvm ) || ( rel( smo , lsvm ) <= tol ) );
  std::cout << ( ok ? "-> OK ( the two decompositions agree )"
                    : "-> FAIL" ) << std::endl;

@@ -114,6 +114,7 @@ static void add_transport( AbstractBlock * block ,
    f->add_variable( & ( * x )[ i ][ j ] , demand[ j ] );
   f->add_variable( & ( * y )[ i ] , - capacity[ i ] );
   ( * cap )[ i ].set_function( f );
+  ( * cap )[ i ].set_lhs( - Inf< double >() );
   ( * cap )[ i ].set_rhs( 0 );
   }
  block->add_static_constraint( * cap , "capacity" + t );
@@ -130,12 +131,15 @@ static void add_transport( AbstractBlock * block ,
 
 // allocate and configure the master Variable y
 
-static std::vector< ColVariable > * make_y( bool set_start )
+static std::vector< ColVariable > * make_y( bool set_start ,
+					    bool integer = false )
 {
  auto y = new std::vector< ColVariable >( M );
  for( auto & y_i : * y ) {
   y_i.is_unitary( true );
   y_i.is_positive( true );
+  if( integer )
+   y_i.is_integer( true );
   if( set_start )
    y_i.set_value( 0.3 );  // start where the capacity Constraint bind non-
                           // degenerately, so the first Benders cut is informative
@@ -149,10 +153,11 @@ static std::vector< ColVariable > * make_y( bool set_start )
 // model). With with_slack == false the demand can only be served through x, so
 // the problem becomes infeasible for small y (used to exercise feasibility cuts)
 
-static AbstractBlock * build_monolithic( bool with_slack = true , int nsub = 1 )
+static AbstractBlock * build_monolithic( bool with_slack = true , int nsub = 1 ,
+					 bool integer = false )
 {
  auto block = new AbstractBlock();
- auto y = make_y( false );
+ auto y = make_y( false , integer );
  block->add_static_variable( * y , "y" );
 
  auto f = new LinearFunction();
@@ -174,10 +179,11 @@ static AbstractBlock * build_monolithic( bool with_slack = true , int nsub = 1 )
 // whose capacity Constraint couple y (the structure BendersDecompositionSolver
 // expects, with nsub subproblems)
 
-static AbstractBlock * build_structured( bool with_slack = true , int nsub = 1 )
+static AbstractBlock * build_structured( bool with_slack = true , int nsub = 1 ,
+					 bool integer = false )
 {
  auto root = new AbstractBlock();
- auto y = make_y( true );
+ auto y = make_y( true , integer );
  root->add_static_variable( * y , "y" );
 
  auto df = new LinearFunction();
@@ -209,7 +215,8 @@ static AbstractBlock * build_structured( bool with_slack = true , int nsub = 1 )
 // the configuration file
 
 static double solve_from_config( AbstractBlock * block , const std::string & fn ,
-				 int & status )
+				 int & status , long * iters = nullptr ,
+				 long * cuts = nullptr )
 {
  auto cfg = Configuration::deserialize( fn );
  auto bsc = dynamic_cast< BlockSolverConfig * >( cfg );
@@ -221,6 +228,12 @@ static double solve_from_config( AbstractBlock * block , const std::string & fn 
  auto solver = block->get_registered_solvers().front();
  status = solver->compute( false );
  const double lb = solver->get_lb();
+
+ if( iters )
+  *iters = solver->get_elapsed_iterations();
+ if( cuts )
+  if( auto bds = dynamic_cast< BendersDecompositionSolver * >( solver ) )
+   *cuts = bds->get_num_cuts();
  /* Reading the bound is all that was needed: the Solver is un-registered
   * and deleted by applying the cleared BlockSolverConfig, which is what
   * gives the Block back whatever the Solver had taken from it. */
@@ -300,6 +313,35 @@ int main( void )
            << "   MILP-multi = " << ben_m2 << "   MILP-single = " << ben_s2
            << std::endl;
 
+ /* ----- how many cuts each variant of the MILP regime takes -------------- #
+  *
+  * The three of them describe the same problem and have to end at the same
+  * value: what changes is how many cuts are needed to get there, which is the
+  * figure to compare, the number of rounds saying little when one round adds
+  * one cut and another adds one per subproblem. */
+
+ { auto root_m = build_structured( true , 4 );
+   auto root_s = build_structured( true , 4 );
+   auto root_p = build_structured( true , 4 );
+   int st_m , st_s , st_p;
+   long it_m = 0 , it_s = 0 , it_p = 0 , ct_m = 0 , ct_s = 0 , ct_p = 0;
+
+   const double v_m = solve_from_config( root_m , "BSPar_benders_milp.txt" ,
+					 st_m , & it_m , & ct_m );
+   const double v_s = solve_from_config( root_s ,
+					 "BSPar_benders_milp_single.txt" ,
+					 st_s , & it_s , & ct_s );
+   const double v_p = solve_from_config( root_p ,
+					 "BSPar_benders_milp_pareto.txt" ,
+					 st_p , & it_p , & ct_p );
+
+   std::cout << "4-scenario MILP master: multi = " << v_m << " ( " << it_m
+             << " rounds , " << ct_m << " cuts ) , single = " << v_s << " ( "
+             << it_s << " rounds , " << ct_s << " cuts ) , Pareto = " << v_p
+             << " ( " << it_p << " rounds , " << ct_p << " cuts )"
+             << std::endl;
+   }
+
  // ----- feasibility cuts: no-slack instance, MILP regime ----------------- #
  // without the slack the subproblem is infeasible for small y, so the solver
  // must generate Benders feasibility cuts out of the Farkas certificate of the
@@ -316,20 +358,67 @@ int main( void )
  const double ref_ns = solve_from_config( mono_ns , "BSPar_sub.txt" ,
 					  st_ns_ref );
  auto root_ns = build_structured( false );
+ auto root_nn = build_structured( false );
  bool ok_ns = true;
  try {
-  int st_ns;
+  int st_ns , st_nn;
+  long ct_ns = 0 , ct_nn = 0;
   const double ben_ns = solve_from_config( root_ns , "BSPar_benders_milp.txt" ,
-					   st_ns );
-  ok_ns = ( rel( ref_ns , ben_ns ) <= tol );
+					   st_ns , nullptr , & ct_ns );
+
+  /* The very same run with the feasibility cuts normalized: they describe the
+   * same half-spaces, so the optimum cannot change. */
+
+  const double ben_nn = solve_from_config( root_nn ,
+					   "BSPar_benders_milp_norm.txt" ,
+					   st_nn , nullptr , & ct_nn );
+  ok_ns = ( rel( ref_ns , ben_ns ) <= tol ) &&
+          ( rel( ref_ns , ben_nn ) <= tol );
   std::cout << "Benders(MILP,feas-cuts,no-slack) = " << ben_ns
-            << "   ref = " << ref_ns
+            << " ( " << ct_ns << " cuts )   normalized = " << ben_nn
+            << " ( " << ct_nn << " cuts )   ref = " << ref_ns
             << ( ok_ns ? "   -> OK" : "   -> FAIL" ) << std::endl;
   }
  catch( const std::exception & e ) {
   std::cout << "Benders(MILP,feas-cuts,no-slack): skipped, the subproblem "
                "Solver gives no certificate - " << e.what() << std::endl;
   }
+
+ /* ----- the same infeasibility, cut away combinatorially ---------------- #
+  *
+  * With the complicating Variable binary an infeasible subproblem can be cut
+  * away by simply forbidding the assignment, which asks nothing of the
+  * subproblem Solver: the two runs describe the same problem, hence they have
+  * to end at the same value, and what the no-good cut costs is visible in how
+  * many cuts it takes to get there. */
+
+ bool ok_ng = true;
+ { auto mono_b = build_monolithic( false , 1 , true );
+   int st_ref_b;
+
+   /* The reference is the monolithic problem with the y binary, so it has to
+    * be solved as the MILP it is: BSPar_sub.txt relaxes the integrality. */
+
+   const double ref_b = solve_from_config( mono_b , "BSPar_master_milp.txt" ,
+					   st_ref_b );
+   auto root_f = build_structured( false , 1 , true );
+   auto root_g = build_structured( false , 1 , true );
+   int st_f , st_g;
+   long ct_f = 0 , ct_g = 0;
+   const double v_f = solve_from_config( root_f , "BSPar_benders_milp.txt" ,
+					 st_f , nullptr , & ct_f );
+   const double v_g = solve_from_config( root_g ,
+					 "BSPar_benders_milp_nogood.txt" ,
+					 st_g , nullptr , & ct_g );
+   ok_ng = ( rel( ref_b , v_f ) <= tol ) && ( rel( ref_b , v_g ) <= tol );
+   std::cout << "binary master, no slack: ref = " << ref_b << "   Farkas = "
+             << v_f << " ( " << ct_f << " cuts )   no-good = " << v_g
+             << " ( " << ct_g << " cuts )"
+             << ( ok_ng ? "   -> OK" : "   -> FAIL" ) << std::endl;
+   delete root_f;
+   delete root_g;
+   delete mono_b;
+   }
 
  // ----- compare ( optimality-cut cases, the supported ones ) ------------- #
  const double err = rel( ref , ben );
@@ -347,7 +436,7 @@ int main( void )
 	       && ( rel( ref2 , ben_s2 ) <= tol );
  std::cout << "2-scenario: " << ( ok2 ? "-> OK" : "-> FAIL" ) << std::endl;
 
- const bool ok = ok1 && ok2 && ok_ns;
+ const bool ok = ok1 && ok2 && ok_ns && ok_ng;
 
  delete root_s2;
  delete root_m2;

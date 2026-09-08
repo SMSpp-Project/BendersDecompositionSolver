@@ -1,0 +1,77 @@
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - BSPar_benders_milp_pareto.txt - - - - - - - - - - - -
+#
+# A txt description of a BlockSolverConfig for a Block having a single
+# BendersDecompositionSolver attached, in the MILP regime with the
+# Pareto-optimal cuts of Papadakos on: besides the cut the incumbent gives,
+# each round generates one at a core point, which is a point in the relative
+# interior of the master feasible set and moves towards the incumbent as the
+# loop proceeds. The subproblem is therefore solved twice per round, in the
+# hope that the stronger cuts pay for it.
+#
+#   Antonio Frangioni
+#   Donato Meoli
+#
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+BlockSolverConfig     # exact type of the Configuration object
+
+0  # the BlockSolverConfig is not a "differential" one
+
+1  # number of (the names of) Solver in this BlockSolverConfig
+# now all the names of the Solver - - - - - - - - - - - - - - - - - - - - - -
+BendersDecompositionSolver # name of Solver
+
+1  # number of ComputeConfig in this BlockSolverConfig
+
+# now all the ComputeConfig
+# 1st ComputeConfig - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ComputeConfig # exact type of the ComputeConfig object
+
+0  # f_diff == 0 ==> all non-provided parameters are set to the default value
+   # f_diff == 1 ==> all non-provided parameters are not changed
+
+2  # number of integer parameters
+
+# now all the integer parameters
+int_BDSlv_Regime  1  # 0 = convex master, 1 = MILP master
+int_BDSlv_Pareto  1  # 0 = the cut of the incumbent, 1 = Papadakos
+
+1  # number of double parameters
+
+# now all the double parameters
+dbl_BDSlv_CoreMove  0.5 # how far the core point moves towards the incumbent
+
+2  # number of string parameters
+
+# now all the string parameters
+str_Bsub_BSCfg  BSPar_sub.txt     # BlockSolverConfig of the subproblems
+str_Mstr_BSCfg  BSPar_master_milp.txt # BlockSolverConfig of the master
+
+0  # number of vector-of-int parameters
+
+# now all the vector-of-int parameters
+# [none]
+
+0  # number of vector-of-double parameters
+
+# now all the vector-of-double parameters
+# [none]
+
+0  # number of vector-of-string parameters
+
+# now all the vector-of-string parameters
+# [none]
+
+# pointer to the "extra" Configuration
+* # [none]
+
+# end of 1st ComputeConfig - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# end of BlockSolverConfig  - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - END BSPar_benders_milp_pareto.txt - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

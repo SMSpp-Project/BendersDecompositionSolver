@@ -34,6 +34,8 @@
 
 #include <algorithm>
 
+#include <cmath>
+
 /*--------------------------------------------------------------------------*/
 /*-------------------------- NAMESPACE & USING -----------------------------*/
 /*--------------------------------------------------------------------------*/
@@ -57,7 +59,13 @@ static const std::vector< std::string > int_pars_BDSlv = {
  "int_BDSlv_Regime" ,
  "int_BDSlv_CutType" ,
  "int_BDSlv_FeasCut" ,
- "int_BDSlv_MaxRounds"
+ "int_BDSlv_MaxRounds" ,
+ "int_BDSlv_Pareto" ,
+ "int_BDSlv_CutNorm"
+ };
+
+static const std::vector< std::string > dbl_pars_BDSlv = {
+ "dbl_BDSlv_CoreMove"
  };
 
 static const std::vector< std::string > str_pars_BDSlv = {
@@ -285,6 +293,9 @@ void BendersDecompositionSolver::get_dual_solution( Configuration * solc )
 
 long BendersDecompositionSolver::get_elapsed_iterations( void ) const
 {
+ if( f_regime == eMILPMaster )
+  return( f_rounds );
+
  return( f_master_solver ? f_master_solver->get_elapsed_iterations() : 0 );
 
  }  // end( BendersDecompositionSolver::get_elapsed_iterations )
@@ -309,6 +320,14 @@ Solver::idx_type BendersDecompositionSolver::get_num_int_par( void ) const
 
 /*--------------------------------------------------------------------------*/
 
+Solver::idx_type BendersDecompositionSolver::get_num_dbl_par( void ) const
+{
+ // TODO: add the master Solver dbl parameters once f_master_solver exists
+ return( dblLastBDSlvPar );
+ }
+
+/*--------------------------------------------------------------------------*/
+
 Solver::idx_type BendersDecompositionSolver::get_num_str_par( void ) const
 {
  // TODO: add the master Solver str parameters once f_master_solver exists
@@ -323,9 +342,21 @@ int BendersDecompositionSolver::get_dflt_int_par( idx_type par ) const
   case( int_BDSlv_iBCopy ):    return( 0 );
   case( int_BDSlv_Regime ):    return( eConvexMaster );
   case( int_BDSlv_CutType ):   return( eMultiCut );
-  case( int_BDSlv_FeasCut ):   return( 1 );
+  case( int_BDSlv_FeasCut ):   return( eFarkas );
   case( int_BDSlv_MaxRounds ): return( Inf< int >() );
+  case( int_BDSlv_Pareto ):    return( eNoPareto );
+  case( int_BDSlv_CutNorm ):   return( eNoNorm );
   default:                     return( CDASolver::get_dflt_int_par( par ) );
+  }
+ }
+
+/*--------------------------------------------------------------------------*/
+
+double BendersDecompositionSolver::get_dflt_dbl_par( idx_type par ) const
+{
+ switch( par ) {
+  case( dbl_BDSlv_CoreMove ): return( 0.5 );
+  default:                    return( CDASolver::get_dflt_dbl_par( par ) );
   }
  }
 
@@ -353,6 +384,17 @@ Solver::idx_type BendersDecompositionSolver::int_par_str2idx(
 
 /*--------------------------------------------------------------------------*/
 
+Solver::idx_type BendersDecompositionSolver::dbl_par_str2idx(
+					 const std::string & name ) const
+{
+ for( idx_type i = 0 ; i < dbl_pars_BDSlv.size() ; ++i )
+  if( name == dbl_pars_BDSlv[ i ] )
+   return( dblLastParCDAS + i );
+ return( CDASolver::dbl_par_str2idx( name ) );
+ }
+
+/*--------------------------------------------------------------------------*/
+
 Solver::idx_type BendersDecompositionSolver::str_par_str2idx(
 					 const std::string & name ) const
 {
@@ -370,6 +412,16 @@ const std::string & BendersDecompositionSolver::int_par_idx2str(
  if( ( idx >= intLastParCDAS ) && ( idx < intLastBDSlvPar ) )
   return( int_pars_BDSlv[ idx - intLastParCDAS ] );
  return( CDASolver::int_par_idx2str( idx ) );
+ }
+
+/*--------------------------------------------------------------------------*/
+
+const std::string & BendersDecompositionSolver::dbl_par_idx2str(
+						      idx_type idx ) const
+{
+ if( ( idx >= dblLastParCDAS ) && ( idx < dblLastBDSlvPar ) )
+  return( dbl_pars_BDSlv[ idx - dblLastParCDAS ] );
+ return( CDASolver::dbl_par_idx2str( idx ) );
  }
 
 /*--------------------------------------------------------------------------*/
@@ -392,7 +444,19 @@ void BendersDecompositionSolver::set_par( idx_type par , int value )
   case( int_BDSlv_CutType ):   f_cut_type = value;   return;
   case( int_BDSlv_FeasCut ):   f_feas_cut = value;   return;
   case( int_BDSlv_MaxRounds ): f_max_rounds = value; return;
+  case( int_BDSlv_Pareto ):    f_pareto = value;     return;
+  case( int_BDSlv_CutNorm ):   f_cut_norm = value;   return;
   default:                     CDASolver::set_par( par , value );
+  }
+ }
+
+/*--------------------------------------------------------------------------*/
+
+void BendersDecompositionSolver::set_par( idx_type par , double value )
+{
+ switch( par ) {
+  case( dbl_BDSlv_CoreMove ): f_core_move = value; return;
+  default:                    CDASolver::set_par( par , value );
   }
  }
 
@@ -419,7 +483,19 @@ int BendersDecompositionSolver::get_int_par( idx_type par ) const
   case( int_BDSlv_CutType ):   return( f_cut_type );
   case( int_BDSlv_FeasCut ):   return( f_feas_cut );
   case( int_BDSlv_MaxRounds ): return( f_max_rounds );
+  case( int_BDSlv_Pareto ):    return( f_pareto );
+  case( int_BDSlv_CutNorm ):   return( f_cut_norm );
   default:                     return( CDASolver::get_int_par( par ) );
+  }
+ }
+
+/*--------------------------------------------------------------------------*/
+
+double BendersDecompositionSolver::get_dbl_par( idx_type par ) const
+{
+ switch( par ) {
+  case( dbl_BDSlv_CoreMove ): return( f_core_move );
+  default:                    return( CDASolver::get_dbl_par( par ) );
   }
  }
 
@@ -711,7 +787,16 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
  const Index nx = v_x.size();
  const Index K = v_BF.size();
+ /* How much a cut has to be violated to be worth adding, relative to the
+  * value of the function it cuts: an absolute threshold would be below the
+  * noise of the master on an instance whose values are large, and the loop
+  * would keep separating cuts that say nothing. */
+
  const double tol = 1e-9;
+
+ auto violated = [ tol ]( double f , double eta ) {
+  return( f - eta > tol * std::max( 1.0 , std::abs( f ) ) );
+  };
 
  /* A cut is a Constraint on the master, i.e., eta - g x >= alpha for an
   * optimality one and - g x >= alpha for a feasibility one, the latter
@@ -719,7 +804,30 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   * subproblem has no solution at all. */
 
  auto add_cut = [ & ]( ColVariable * eta ,
-                       const std::vector< double > & g , double alpha ) {
+                       const std::vector< double > & g , double alpha ,
+                       bool scalable = true ) {
+  /* A feasibility cut is a ray, hence its scale is arbitrary and putting all
+   * of them on the same one is up to whoever generates them [see
+   * feasibility_cut_norm_type]; a combinatorial one is not a ray, and its
+   * coefficients mean what they say. */
+
+  double scale = 1;
+  if( scalable && ( ! eta ) && ( f_cut_norm != eNoNorm ) ) {
+   double nrm = 0;
+   for( Index i = 0 ; i < nx ; ++i )
+    switch( f_cut_norm ) {
+     case( eOneNorm ): nrm += std::abs( g[ i ] ); break;
+     case( eTwoNorm ): nrm += g[ i ] * g[ i ]; break;
+     default:          nrm = std::max( nrm , std::abs( g[ i ] ) );
+     }
+
+   if( f_cut_norm == eTwoNorm )
+    nrm = std::sqrt( nrm );
+
+   if( nrm > 0 )
+    scale = 1 / nrm;
+   }
+
   LinearFunction::v_coeff_pair cp;
   cp.reserve( nx + 1 );
 
@@ -728,11 +836,11 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   for( Index i = 0 ; i < nx ; ++i )
    if( g[ i ] )
-    cp.emplace_back( v_x[ i ] , - g[ i ] );
+    cp.emplace_back( v_x[ i ] , - g[ i ] * scale );
 
   std::list< FRowConstraint > nc( 1 );
   nc.front().set_function( new LinearFunction( std::move( cp ) ) );
-  nc.front().set_lhs( alpha );
+  nc.front().set_lhs( alpha * scale );
   nc.front().set_rhs( Inf< double >() );
 
   /* The Modification has to reach the master Solver, which is in the middle
@@ -740,11 +848,160 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    * before it is asked to solve again. */
 
   f_master->add_dynamic_constraints( *v_cuts , nc , eModBlck );
+  ++f_cuts;
   };
+
+ /* Cutting away an x at which a subproblem has no solution: which cut that is
+  * is a parameter [see feasibility_cut_type]. The no-good one forbids the
+  * current assignment and nothing else, hence it is written out of the
+  * incumbent rather than out of any certificate. */
+
+ auto add_feasibility_cut = [ & ]( const std::vector< double > & g ,
+                                   double alpha ) {
+  if( f_feas_cut == eAlwaysFeasible )
+   throw( std::logic_error( _prfx + "a subproblem is infeasible while "
+                            "int_BDSlv_FeasCut says none can be" ) );
+
+  if( f_feas_cut == eFarkas ) {
+   add_cut( nullptr , g , alpha );
+   return;
+   }
+
+  std::vector< double > ng( nx );
+  double rhs = 1;
+  for( Index i = 0 ; i < nx ; ++i ) {
+   auto xi = v_x[ i ];
+   if( ( ! xi->is_integer() ) || ( xi->get_lb() < 0 ) || ( xi->get_ub() > 1 ) )
+    throw( std::logic_error( _prfx + "a combinatorial cut needs all the "
+                             "complicating Variable to be binary" ) );
+
+   if( xi->get_value() > 0.5 ) {  // the ones of the assignment
+    ng[ i ] = 1;
+    --rhs;
+    }
+   else
+    ng[ i ] = -1;
+   }
+
+  add_cut( nullptr , ng , rhs , false );
+  };
+
+ /* Evaluating one value function at the point the x currently hold, and
+  * reading the cut out of it: the linearization is the cut, a diagonal one
+  * when the subproblem is feasible and a vertical one, i.e., the Farkas
+  * certificate, when it is not. */
+
+ auto get_cut = [ & ]( Index k , std::vector< double > & g , double & alpha ,
+                       bool & diagonal ) {
+  auto bf = v_BF[ k ];
+
+  const int st = bf->compute();
+
+  if( ( st != kOK ) && ( st != kInfeasible ) )
+   return( st );
+
+  diagonal = ( st == kOK );
+
+  /* An infeasible subproblem that is cut away with something other than the
+   * Farkas certificate does not need one, and asking for it would throw. */
+
+  if( ( ! diagonal ) && ( f_feas_cut != eFarkas ) )
+   return( int( kOK ) );
+
+  if( ! bf->has_linearization( diagonal ) )
+   if( ! bf->compute_new_linearization( diagonal ) ) {
+    if( diagonal )
+     throw( std::logic_error( _prfx + "no linearization of subproblem " +
+                              std::to_string( k ) ) );
+
+    throw( std::logic_error( _prfx + "subproblem " + std::to_string( k ) +
+                             " is infeasible and its Solver gives no "
+                             "unbounded dual direction, hence no feasibility "
+                             "cut can be generated: switch the presolve of "
+                             "the subproblem Solver off, it detecting the "
+                             "infeasibility on the reduced problem and "
+                             "leaving no certificate for the original one" ) );
+    }
+
+  bf->get_linearization_coefficients( g.data() , Range( 0 , nx ) );
+  alpha = bf->get_linearization_constant();
+  return( int( kOK ) );
+  };
+
+ /* The Pareto-optimal cuts of Papadakos: the very same evaluation, but at the
+  * core point rather than at the incumbent, hence one more cut per subproblem
+  * and per round. The cut is added whether or not it is violated, it being
+  * generated at a point that has nothing to do with the incumbent, and the
+  * core point is then moved towards the incumbent so that it keeps track of
+  * where the master is going [see cut_strengthening_type]. */
+
+ auto add_pareto_cuts = [ & ]( void ) {
+  std::vector< double > x_inc( nx );
+  for( Index i = 0 ; i < nx ; ++i ) {
+   x_inc[ i ] = v_x[ i ]->get_value();
+   v_x[ i ]->set_value( v_core[ i ] );
+   }
+
+  std::vector< double > g( nx );
+  std::vector< double > gs( nx , 0 );
+  double as = 0;
+  bool all_feasible = true;
+
+  for( Index k = 0 ; k < K ; ++k ) {
+   double alpha;
+   bool diagonal;
+   if( get_cut( k , g , alpha , diagonal ) != kOK )
+    break;
+
+   /* The core point is not the incumbent, hence a no-good cut written out of
+    * it would forbid an assignment that has nothing to do with the one being
+    * looked at, and would not even be valid: only the certificate, which is a
+    * cut of the value function itself, can be taken here. */
+
+   if( ! diagonal ) {   // a feasibility cut is never aggregated
+    all_feasible = false;
+    if( f_feas_cut == eFarkas )
+     add_cut( nullptr , g , alpha );
+    continue;
+    }
+
+   if( f_cut_type == eSingleCut ) {
+    for( Index i = 0 ; i < nx ; ++i )
+     gs[ i ] += g[ i ];
+    as += alpha;
+    continue;
+    }
+
+   add_cut( & (*v_eta)[ k ] , g , alpha );
+   }
+
+  if( ( f_cut_type == eSingleCut ) && all_feasible )
+   add_cut( & (*v_eta)[ 0 ] , gs , as );
+
+  for( Index i = 0 ; i < nx ; ++i ) {
+   v_core[ i ] += f_core_move * ( x_inc[ i ] - v_core[ i ] );
+   v_x[ i ]->set_value( x_inc[ i ] );
+   }
+  };
+
+ /* The core point starts wherever the x are when the loop does, which is
+  * where whoever built the model left them: a point in the relative interior
+  * of the master feasible set is what the theory asks for. */
+
+ f_cuts = 0;
+ f_rounds = 0;
+
+ if( f_pareto == ePapadakos ) {
+  v_core.resize( nx );
+  for( Index i = 0 ; i < nx ; ++i )
+   v_core[ i ] = v_x[ i ]->get_value();
+  }
 
  int status = kOK;
 
  for( int round = 0 ; round < f_max_rounds ; ++round ) {
+
+  ++f_rounds;
 
   status = f_master_solver->compute( round > 0 );
 
@@ -764,42 +1021,22 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   Index added = 0;
 
   for( Index k = 0 ; k < K ; ++k ) {
-   auto bf = v_BF[ k ];
-
-   const int st = bf->compute();
-
-   if( ( st != kOK ) && ( st != kInfeasible ) )
-    return( st );
-
-   const bool diagonal = ( st == kOK );
-
-   if( ! bf->has_linearization( diagonal ) )
-    if( ! bf->compute_new_linearization( diagonal ) ) {
-     if( diagonal )
-      throw( std::logic_error( _prfx + "no linearization of subproblem " +
-                               std::to_string( k ) ) );
-
-     throw( std::logic_error( _prfx + "subproblem " + std::to_string( k ) +
-                              " is infeasible and its Solver gives no "
-                              "unbounded dual direction, hence no feasibility "
-                              "cut can be generated: the certificate only "
-                              "exists if the infeasibility is proved by the "
-                              "simplex, so ask the subproblem Solver for it "
-                              "and switch its presolve off" ) );
-     }
-
    std::vector< double > g( nx , 0 );
-   bf->get_linearization_coefficients( g.data() , Range( 0 , nx ) );
-   const double alpha = bf->get_linearization_constant();
+   double alpha;
+   bool diagonal;
+
+   const int st = get_cut( k , g , alpha , diagonal );
+   if( st != kOK )
+    return( st );
 
    if( ! diagonal ) {   // a feasibility cut is never aggregated
     all_feasible = false;
-    add_cut( nullptr , g , alpha );
+    add_feasibility_cut( g , alpha );
     ++added;
     continue;
     }
 
-   const double fk = bf->get_value();
+   const double fk = v_BF[ k ]->get_value();
 
    if( f_cut_type == eSingleCut ) {
     for( Index i = 0 ; i < nx ; ++i )
@@ -810,7 +1047,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
     }
 
    // the cut is violated only if the epigraph Variable is below the value
-   if( fk - (*v_eta)[ k ].get_value() > tol ) {
+   if( violated( fk , (*v_eta)[ k ].get_value() ) ) {
     add_cut( & (*v_eta)[ k ] , g , alpha );
     ++added;
     }
@@ -820,7 +1057,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    * to contribute to it, i.e., if none of them is infeasible. */
 
   if( ( f_cut_type == eSingleCut ) && all_feasible )
-   if( fs - (*v_eta)[ 0 ].get_value() > tol ) {
+   if( violated( fs , (*v_eta)[ 0 ].get_value() ) ) {
     add_cut( & (*v_eta)[ 0 ] , gs , as );
     ++added;
     }
@@ -829,6 +1066,14 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    f_solved = true;
    return( status );
    }
+
+  /* The Pareto-optimal cuts come after the ordinary ones, and only when
+   * those exist: a round that adds none is the last one, and the value
+   * functions have to be left evaluated at the incumbent, which is where
+   * map_back_solution() reads the y^k of each subproblem from. */
+
+  if( f_pareto == ePapadakos )
+   add_pareto_cuts();
   }
 
  return( kStopIter );

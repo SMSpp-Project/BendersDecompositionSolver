@@ -36,7 +36,35 @@
  * \endlink
  *
  * for the case in which the master problem is a (stabilized) combinatorial
- * problem, solved as a MILP with Benders cuts added as lazy constraints.
+ * problem, solved as a MILP with Benders cuts added as lazy constraints. The
+ * Pareto-optimal cuts are those of
+ *
+ *  T.L. Magnanti, R.T. Wong "Accelerating Benders Decomposition: Algorithmic
+ *  Enhancement and Model Selection Criteria" Operations Research 29(3),
+ *  464 - 484, 1981
+ *
+ * in the one-step form of
+ *
+ *  N. Papadakos "Practical Enhancements to the Magnanti-Wong Method"
+ *  Operations Research Letters 36(4), 444 - 449, 2008
+ *
+ * the combinatorial cuts are those of
+ *
+ *  G. Codato, M. Fischetti "Combinatorial Benders' Cuts for Mixed-Integer
+ *  Linear Programming" Operations Research 54(4), 756 - 766, 2006
+ *
+ * and the reason why a feasibility cut is normalized, i.e., that which of the
+ * many cuts a given infeasibility offers is selected is a matter of the
+ * normalization imposed on the certificate, is discussed in
+ *
+ *  M. Fischetti, D. Salvagnin, A. Zanette "A Note on the Selection of
+ *  Benders' Cuts" Mathematical Programming 124(1-2), 175 - 182, 2010
+ *
+ * a broad survey of all this being
+ *
+ *  R. Rahmaniani, T.G. Crainic, M. Gendreau, W. Rei "The Benders
+ *  Decomposition Algorithm: A Literature Review" European Journal of
+ *  Operational Research 259(3), 801 - 817, 2017
  *
  * \author Antonio Frangioni \n
  *         Dipartimento di Informatica \n
@@ -209,11 +237,12 @@ namespace SMSpp_di_unipi_it
  * basic or not: an interior-point method, whose solution is "central" rather
  * than a vertex, is not only allowed but can be expected to give stronger
  * cuts. The feasibility cut, instead, *is* the unbounded dual direction, i.e.,
- * the Farkas certificate, and that one only exists if the infeasibility is
- * proved by the simplex: an interior-point method proves it without producing
- * any, and so does a presolve that detects it first, whence the presolve of
- * the subproblem Solver has to be switched off if feasibility cuts are wanted
- * at all. If the certificate is missing, exception is thrown rather than
+ * the Farkas certificate, which is a ray of the dual polyhedron and therefore
+ * has nothing to do with the algorithm: a Solver worth its name produces one
+ * from an interior point as well. What does destroy it is the presolve, which
+ * detects the infeasibility on the reduced problem and returns no certificate
+ * for the original one, whence the presolve of the subproblem Solver has to
+ * be switched off if feasibility cuts are wanted at all. If the certificate is missing, exception is thrown rather than
  * silently converging to a wrong optimum. Note that a subproblem that is
  * always feasible, e.g. because the constraints that the master can make
  * unsatisfiable carry a slack with a large cost, needs no feasibility cut in
@@ -252,6 +281,79 @@ class BendersDecompositionSolver : public CDASolver
  enum cut_aggregation_type {
   eMultiCut  = 0 ,  ///< one epigraph Variable / cut family per subproblem
   eSingleCut = 1    ///< one aggregated epigraph Variable for all subproblems
+  };
+
+ /// what an infeasible subproblem is cut away with
+ /** A subproblem that has no solution at the current x says that that x is
+  * not feasible for the original problem either, and the master has to be
+  * told so with a cut that no optimality one can give, the value function
+  * being infinite there. There are three ways out:
+  *
+  * - the subproblem is never infeasible, which is the case whenever the
+  *   constraints the master can make unsatisfiable carry a slack with a large
+  *   enough cost: nothing is asked of the subproblem Solver then, and this is
+  *   the robust choice whenever the model allows it;
+  *
+  * - the Farkas certificate of the infeasibility, i.e., the unbounded ray of
+  *   the dual, which is the classical feasibility cut and the tightest of the
+  *   three, but has to be produced by the subproblem Solver;
+  *
+  * - a combinatorial, or no-good, cut, which merely forbids the current
+  *   assignment: it asks nothing of the subproblem Solver, but it is only
+  *   available when the complicating Variable are all binary, and it is much
+  *   weaker, cutting away one point at a time [Codato and Fischetti]. */
+
+ enum feasibility_cut_type {
+  eAlwaysFeasible = 0 ,  ///< the subproblem cannot be infeasible
+  eFarkas         = 1 ,  ///< the Farkas certificate of the infeasibility
+  eCombinatorial  = 2    ///< a no-good cut on the binary complicating Variable
+  };
+
+ /// which of the many cuts a degenerate subproblem offers is taken
+ /** A subproblem is very often dual degenerate, and then its optimal duals
+  * are a face rather than a point: every one of them gives a valid cut, but
+  * some of those cuts dominate the others, and which one the Solver happens
+  * to return is arbitrary. A cut that is *not* dominated by any other is
+  * called Pareto-optimal.
+  *
+  * [
+  *   v^k( x ) \geq lpha + g^	op x \quad \mbox{dominates} \quad
+  *   v^k( x ) \geq lpha' + g'^	op x
+  * ]
+  * when it is above it everywhere on the master feasible set, so which cut
+  * is Pareto-optimal depends on that set and not on the incumbent alone.
+  * Magnanti and Wong obtain one by maximizing the cut at a *core point*, a
+  * point in the relative interior of the master feasible set, subject to the
+  * duals staying optimal for the incumbent; Papadakos observed that the extra
+  * constraint can be dropped, the cut generated by solving the subproblem at
+  * the core point alone being Pareto-optimal already, which turns the second
+  * problem into another ordinary evaluation of the value function. */
+
+ enum cut_strengthening_type {
+  eNoPareto  = 0 ,  ///< the cut the incumbent gives, whichever it is
+  ePapadakos = 1    ///< one more cut per round, generated at the core point
+  };
+
+ /// how a feasibility cut is scaled before it enters the master
+ /** A feasibility cut is the Farkas certificate of an infeasible subproblem,
+  * i.e., a ray of its dual polyhedron: a ray is defined up to a positive
+  * multiplier, so how large the coefficients of the cut come out is an
+  * accident of how the Solver normalized the certificate. The half-space the
+  * cut describes does not change with the scaling, but everything the master
+  * measures on it does, from the violation that decides whether it is
+  * separated to the numerics of the row itself, whence dividing it by a norm
+  * of its coefficients puts all the feasibility cuts on the same footing.
+  * Which cut a given infeasibility yields is in fact decided by the
+  * normalization imposed on the certificate, as Fischetti, Salvagnin and
+  * Zanette show by writing the separation as a problem of its own.
+  * Optimality cuts are not scaled, and cannot be: the epigraph Variable in
+  * them has coefficient one, which fixes their scale. */
+
+ enum feasibility_cut_norm_type {
+  eNoNorm  = 0 ,  ///< the cut as the certificate comes out of the Solver
+  eOneNorm = 1 ,  ///< divided by the 1-norm of its coefficients
+  eTwoNorm = 2 ,  ///< divided by the 2-norm of its coefficients
+  eInfNorm = 3    ///< divided by the largest of its coefficients
   };
 
 /** @} ---------------------------------------------------------------------*/
@@ -312,10 +414,22 @@ class BendersDecompositionSolver : public CDASolver
 /*--------------------------------------------------------------------------*/
  /// the number of iterations of the cutting-plane loop
  /** The loop is run by the Solver of the master, be it the bundle of the
-  * convex regime or this Solver itself in the MILP one, so the count is that
-  * of the master Solver; it is zero if the master has not been built yet. */
+  * convex regime or this Solver itself in the MILP one: it is therefore the
+  * count of the master Solver in the former case and the number of rounds of
+  * the cutting-plane loop in the latter, and it is zero if nothing has been
+  * solved yet. */
 
  long get_elapsed_iterations( void ) const override;
+
+/*--------------------------------------------------------------------------*/
+ /// the number of Benders cuts generated in the MILP regime
+ /** The number of cuts the cutting-plane loop of the MILP regime has added to
+  * the master so far, which is what tells a multi-cut run from a single-cut
+  * one: they may well do the same number of iterations while adding a very
+  * different number of cuts. In the convex regime the cuts are the
+  * linearizations the master Solver asks for, and they are counted by it. */
+
+ [[nodiscard]] long get_num_cuts( void ) const { return( f_cuts ); }
 
 /*--------------------------------------------------------------------------*/
  /// the time spent in the cutting-plane loop, master and subproblems
@@ -345,12 +459,28 @@ class BendersDecompositionSolver : public CDASolver
   ///< cut aggregation, a cut_aggregation_type value
 
   int_BDSlv_FeasCut ,
-  ///< 0 = always-feasible subproblem (slack), 1 = Farkas feasibility cuts
+  ///< how an infeasible subproblem is cut away, a feasibility_cut_type value
 
   int_BDSlv_MaxRounds ,
   ///< cap on the number of cut rounds in the MILP regime
 
+  int_BDSlv_Pareto ,
+  ///< cut strengthening, a cut_strengthening_type value
+
+  int_BDSlv_CutNorm ,
+  ///< scaling of the feasibility cuts, a feasibility_cut_norm_type value
+
   intLastBDSlvPar  ///< first allowed parameter value for derived classes
+  };
+
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
+
+ /// public enum of the double parameters specific to BendersDecompositionSolver
+ enum dbl_par_type_BDSlv {
+  dbl_BDSlv_CoreMove = dblLastParCDAS ,
+  ///< how far the core point moves towards the incumbent, in [ 0 , 1 ]
+
+  dblLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
@@ -373,17 +503,27 @@ class BendersDecompositionSolver : public CDASolver
 
  [[nodiscard]] idx_type get_num_int_par( void ) const override;
 
+ [[nodiscard]] idx_type get_num_dbl_par( void ) const override;
+
  [[nodiscard]] idx_type get_num_str_par( void ) const override;
 
  [[nodiscard]] int get_dflt_int_par( idx_type par ) const override;
 
+ [[nodiscard]] double get_dflt_dbl_par( idx_type par ) const override;
+
  [[nodiscard]] const std::string & get_dflt_str_par( idx_type par )
+  const override;
+
+ [[nodiscard]] idx_type dbl_par_str2idx( const std::string & name )
   const override;
 
  [[nodiscard]] idx_type int_par_str2idx( const std::string & name )
   const override;
 
  [[nodiscard]] idx_type str_par_str2idx( const std::string & name )
+  const override;
+
+ [[nodiscard]] const std::string & dbl_par_idx2str( idx_type idx )
   const override;
 
  [[nodiscard]] const std::string & int_par_idx2str( idx_type idx )
@@ -394,9 +534,13 @@ class BendersDecompositionSolver : public CDASolver
 
  void set_par( idx_type par , int value ) override;
 
+ void set_par( idx_type par , double value ) override;
+
  void set_par( idx_type par , const std::string & value ) override;
 
  [[nodiscard]] int get_int_par( idx_type par ) const override;
+
+ [[nodiscard]] double get_dbl_par( idx_type par ) const override;
 
  [[nodiscard]] const std::string & get_str_par( idx_type par ) const override;
 
@@ -517,6 +661,15 @@ class BendersDecompositionSolver : public CDASolver
  /// true if a solution of the master is available
  bool f_solved = false;
 
+ /// the core point the Pareto-optimal cuts are generated at, in master order
+ std::vector< double > v_core;
+
+ /// the number of cuts added to the MILP master
+ long f_cuts = 0;
+
+ /// the number of rounds of the cutting-plane loop of the MILP regime
+ long f_rounds = 0;
+
  // ----- parameters -------------------------------------------------------
 
  int f_iBCopy = 0;       ///< int_BDSlv_iBCopy
@@ -525,9 +678,15 @@ class BendersDecompositionSolver : public CDASolver
 
  int f_cut_type = eMultiCut;    ///< int_BDSlv_CutType
 
- int f_feas_cut = 1;     ///< int_BDSlv_FeasCut
+ int f_feas_cut = eFarkas;  ///< int_BDSlv_FeasCut
 
  int f_max_rounds = Inf< int >();  ///< int_BDSlv_MaxRounds
+
+ int f_pareto = eNoPareto;  ///< int_BDSlv_Pareto
+
+ double f_core_move = 0.5;  ///< dbl_BDSlv_CoreMove
+
+ int f_cut_norm = eNoNorm;  ///< int_BDSlv_CutNorm
 
  std::string f_MSName;   ///< str_BDSlv_MSName
 

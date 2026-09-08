@@ -191,13 +191,21 @@ static AbstractBlock * build_structured( CFLB * B , double M )
 
 static double solve( AbstractBlock * block , const std::string & cfg ,
 		     double & seconds , int * status = nullptr ,
-		     double * ub = nullptr )
+		     double * ub = nullptr , long * iters = nullptr ,
+		     long * cuts = nullptr , int rounds = 0 )
 {
  auto c = Configuration::deserialize( cfg );
  auto bsc = dynamic_cast< BlockSolverConfig * >( c );
  if( ! bsc ) { std::cerr << cfg << " not a BlockSolverConfig\n"; std::exit( 1 ); }
  bsc->apply( block );
  auto solver = block->get_registered_solvers().front();
+
+ /* Capping the rounds turns the run into a fixed budget of cuts, which is
+  * how the strength of a family of cuts is measured: whoever has the better
+  * bound after the same number of rounds has the stronger cuts. */
+
+ if( rounds > 0 )
+  solver->set_par( solver->int_par_str2idx( "int_BDSlv_MaxRounds" ) , rounds );
  auto t0 = std::chrono::steady_clock::now();
  const int st = solver->compute( false );
  auto t1 = std::chrono::steady_clock::now();
@@ -210,6 +218,10 @@ static double solve( AbstractBlock * block , const std::string & cfg ,
  const double lb = solver->get_lb();
  if( status ) *status = st;
  if( ub ) *ub = solver->get_ub();
+ if( iters ) *iters = solver->get_elapsed_iterations();
+ if( cuts )
+  if( auto bds = dynamic_cast< BendersDecompositionSolver * >( solver ) )
+   *cuts = bds->get_num_cuts();
 
  /* Reading the bound is all that was needed: the Solver is un-registered
   * and deleted by applying the cleared BlockSolverConfig, which is what
@@ -291,6 +303,28 @@ int main( int argc , char ** argv )
  const double bds = solve( root , "BSPar_benders_convex.txt" , t_bds ,
                            & st_bds , & ub_bds );
 
+ /* ----- the MILP master, with and without the Pareto-optimal cuts -------- #
+  *
+  * Facility location is where the Pareto-optimal cuts were invented: the
+  * transportation subproblem is massively dual degenerate, so which of its
+  * optimal duals the Solver returns, and hence how strong the cut is, is
+  * arbitrary. Both runs have to end at the same value; the figures to compare
+  * are the rounds, the cuts and the time. */
+
+ /* How many rounds the two capped runs get: enough to tell the cuts apart,
+  * few enough that a pure cutting plane does not have to converge. */
+
+ const int budget = ( argc > 3 ) ? std::stoi( argv[ 3 ] ) : 30;
+ auto root_m = build_structured( B , M );
+ auto root_p = build_structured( B , M );
+ double t_m , t_p;
+ int st_m , st_p;
+ long it_m = 0 , it_p = 0 , ct_m = 0 , ct_p = 0;
+ const double v_m = solve( root_m , "BSPar_benders_milp.txt" , t_m , & st_m ,
+                           nullptr , & it_m , & ct_m , budget );
+ const double v_p = solve( root_p , "BSPar_benders_milp_pareto.txt" , t_p ,
+                           & st_p , nullptr , & it_p , & ct_p , budget );
+
  // ----- compare ---------------------------------------------------------- #
  const double tol = 1e-5;
  auto rel = [ ref ]( double v ) {
@@ -298,16 +332,28 @@ int main( int argc , char ** argv )
 	  / std::max( 1.0 , std::max( std::abs( ref ) , std::abs( v ) ) ) );
   };
  const double e_ben = with_benform ? rel( ben ) : 0 , e_bds = rel( bds );
- const bool ok = ( e_ben <= tol ) && ( e_bds <= tol );
+
+ /* The two capped runs are lower bounds, not optima: what they have to
+  * satisfy is that they are below the optimum, and the interest is in which
+  * of the two is closer to it. */
+
+ const bool ok = ( e_ben <= tol ) && ( e_bds <= tol ) &&
+                 ( v_m <= ref * ( 1 + tol ) ) && ( v_p <= ref * ( 1 + tol ) );
  std::cout.precision( 10 );
  std::cout << "monolithic LP   = " << ref << "  ( " << t_ref << " s )\n";
  if( with_benform )
   std::cout << "CFLB BenForm    = " << ben << "  ( " << t_ben << " s )  err "
             << e_ben << "\n";
  std::cout << "BDS+Bundle      = " << bds << "  ( " << t_bds << " s )  err "
-           << e_bds << " , status " << st_bds << " , ub " << ub_bds << "\n"
-           << ( ok ? "-> OK ( same model )" : "-> FAIL" ) << std::endl;
+           << e_bds << " , status " << st_bds << " , ub " << ub_bds << "\n";
+ std::cout << "BDS+MILP master = " << v_m << "  ( " << t_m << " s )  gap "
+           << rel( v_m ) << " , " << it_m << " rounds , " << ct_m << " cuts\n";
+ std::cout << "BDS+MILP+Pareto = " << v_p << "  ( " << t_p << " s )  gap "
+           << rel( v_p ) << " , " << it_p << " rounds , " << ct_p << " cuts\n";
+ std::cout << ( ok ? "-> OK ( same model )" : "-> FAIL" ) << std::endl;
 
+ delete root_m;
+ delete root_p;
  delete root;
  delete Bben;
  delete mono;

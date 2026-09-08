@@ -34,6 +34,19 @@ parameter:
   Benders cuts are added as dynamic `Constraint`, the solver driving the outer
   cut loop until no violated cut remains.
 
+Which of the cuts a degenerate subproblem offers is taken is a parameter as
+well: a subproblem is very often dual degenerate, so its optimal duals are a
+face rather than a point and every one of them gives a valid, but not equally
+strong, cut. Besides the one the incumbent happens to give,
+`BendersDecompositionSolver` can generate the Pareto-optimal cut of Magnanti
+and Wong in the one-step form of Papadakos, i.e., by solving the subproblem at
+a core point that moves towards the incumbent as the loop proceeds. Feasibility
+cuts, being rays of the dual polyhedron and therefore defined up to a positive
+multiplier, can be normalized by a norm of their own coefficients; and an
+infeasible subproblem whose complicating `Variable` are binary can be cut away
+by a combinatorial, or no-good, cut, which forbids the assignment at hand and
+asks nothing at all of the subproblem `Solver`.
+
 The master and the subproblem `Solver` are instantiated through the `Solver`
 factory and configured via `Configuration`, so that how the master and the
 subproblems are solved is not hard-wired. See the class documentation for the
@@ -43,9 +56,10 @@ Both kinds of cut are duals of the subproblem, but they ask different things of
 the `Solver` that produces them. Any optimal dual solution gives a valid
 optimality cut, basic or not, and the "central" solution of an interior-point
 method can even give a stronger one. The feasibility cut, instead, *is* the
-unbounded dual direction, i.e., the Farkas certificate, which only exists if
-the infeasibility is proved by the simplex: an interior-point method proves it
-without producing any, and so does a presolve that detects it first, hence the
+unbounded dual direction, i.e., the Farkas certificate, which is a ray of the
+dual polyhedron and therefore has nothing to do with the algorithm that finds
+it. What does destroy it is the presolve, which detects the infeasibility on
+the reduced problem and returns no certificate for the original one, hence the
 presolve of the subproblem `Solver` has to be switched off if feasibility cuts
 are wanted at all. If the certificate is missing, an exception is thrown rather
 than silently converging to a wrong optimum. A subproblem that is always
@@ -65,6 +79,33 @@ and in
 D. Baena, J. Castro, A. Frangioni "Stabilized Benders Methods for Large-scale
 Combinatorial Optimization, with Application to Data Privacy" *Management
 Science* 66(7), 3051-3068, 2020
+
+while the Pareto-optimal cuts are those of
+
+T.L. Magnanti, R.T. Wong "Accelerating Benders Decomposition: Algorithmic
+Enhancement and Model Selection Criteria" *Operations Research* 29(3), 464-484,
+1981
+
+in the one-step form of
+
+N. Papadakos "Practical Enhancements to the Magnanti-Wong Method" *Operations
+Research Letters* 36(4), 444-449, 2008
+
+the combinatorial cuts are those of
+
+G. Codato, M. Fischetti "Combinatorial Benders' Cuts for Mixed-Integer Linear
+Programming" *Operations Research* 54(4), 756-766, 2006
+
+the normalization of the feasibility cuts follows
+
+M. Fischetti, D. Salvagnin, A. Zanette "A Note on the Selection of Benders'
+Cuts" *Mathematical Programming* 124(1-2), 175-182, 2010
+
+and a broad survey of all this is
+
+R. Rahmaniani, T.G. Crainic, M. Gendreau, W. Rei "The Benders Decomposition
+Algorithm: A Literature Review" *European Journal of Operational Research*
+259(3), 801-817, 2017
 
 
 ## Getting started
