@@ -133,6 +133,26 @@ if (BUILD_BundleSolver AND BUILD_MILPSolver)
         add_test(NAME ${modName}_tssb_test
                 COMMAND ${modName}_tssb_test
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
+
+        # the same comparison on instances of growing size, which is where the
+        # two forms part ways: the instances are written by gen_tssb.py, hence
+        # the batch runs only where there is a Python that can write netCDF
+        find_package(Python3 COMPONENTS Interpreter)
+        if (Python3_Interpreter_FOUND)
+            execute_process(COMMAND ${Python3_EXECUTABLE} -c "import netCDF4"
+                            RESULT_VARIABLE HAS_NETCDF4
+                            OUTPUT_QUIET ERROR_QUIET)
+            if (HAS_NETCDF4 EQUAL 0)
+                add_test(NAME ${modName}_tssb_batch
+                        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/batch-tssb
+                                $<TARGET_FILE:${modName}_tssb_test>
+                                ${Python3_EXECUTABLE}
+                        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
+            else ()
+                message(STATUS
+                        "${modName}: netCDF4 is not there, the tssb batch is out")
+            endif ()
+        endif ()
     endif ()
 
     # the two dual decompositions of a SVM training problem, one against the

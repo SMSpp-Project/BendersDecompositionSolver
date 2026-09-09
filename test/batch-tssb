@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+#
+# usage: batch-tssb < exe file > < python > < log file >
+#        < exe file > = path of the executable, default ./BendersDecompositionSolver_tssb_test
+#        < python >   = interpreter that has netCDF4, default python3
+#        < log file > = output log file (no log if absent)
+#
+# compares, on instances of growing size, the three ways of solving the same
+# two-stage stochastic investment problem: the extensive form, the generic
+# Benders decomposition of BendersDecompositionSolver driven by the design
+# Variable, and the ad hoc one the InvestmentBlock carries, i.e., an
+# InvestmentFunction whose value is the whole stochastic problem. The three
+# describe the same problem, so what is compared is the number of iterations
+# and the time; the instances are written by gen_tssb.py
+
+exe="${1:-./BendersDecompositionSolver_tssb_test}"
+py="${2:-python3}"
+log="$3"
+
+here="$( cd "$( dirname "$0" )" && pwd )"
+tmp="$( mktemp -d )"
+trap 'rm -rf "$tmp"' EXIT
+
+fail=0
+
+printf '%4s %5s | %-18s | %-9s %-6s | %-9s %-6s\n' \
+       "scn" "steps" "optimum" "generic" "iters" "ad hoc" "iters"
+
+for S in 3 10 30 100; do
+  for T in 24 96; do
+
+    inst="$tmp/tssb_${S}x${T}.nc4"
+    "$py" "$here/gen_tssb.py" "$inst" "$S" "$T" 1 > /dev/null || exit 1
+
+    out="$( "$exe" "$inst" 2>&1 )"
+    rc=$?
+
+    ref=$( printf '%s' "$out" | awk '/^monolithic/ { print $2 }' )
+    tg=$( printf '%s' "$out" | awk '/^Benders, generic/ { print $7 }' )
+    ig=$( printf '%s' "$out" | awk '/^Benders, generic/ { print $9 }' )
+    ta=$( printf '%s' "$out" | awk '/^Benders, ad hoc/ { print $8 }' )
+    ia=$( printf '%s' "$out" | awk '/^Benders, ad hoc/ { print $10 }' )
+
+    printf '%4s %5s | %-18s | %-9s %-6s | %-9s %-6s %s\n' \
+           "$S" "$T" "$ref" "$tg" "$ig" "$ta" "$ia" \
+           "$( [ $rc -eq 0 ] && echo OK || echo KO )"
+
+    [ $rc -eq 0 ] || fail=1
+    [ -n "$log" ] && printf '%s\n' "$out" >> "$log"
+
+  done
+done
+
+exit $fail

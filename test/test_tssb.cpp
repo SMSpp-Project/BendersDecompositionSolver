@@ -64,7 +64,10 @@ using namespace netCDF;
 // accuracy is 1e-4, hence nothing tighter can be asked of the comparison
 static constexpr double tolerance = 1e-6;
 
-static const std::string instance = "tssb_investment.nc4";
+/* The instance, the one in the repository unless another is named on the
+ * command line: gen_tssb.py writes them of whatever size. */
+
+static std::string instance = "tssb_investment.nc4";
 
 /*--------------------------------------------------------------------------*/
 /*------------------------------- TYPES ------------------------------------*/
@@ -359,8 +362,11 @@ static double solve_ad_hoc( double & secs , long & iters , int & status )
 /*-------------------------------- MAIN ------------------------------------*/
 /*--------------------------------------------------------------------------*/
 
-int main( void )
+int main( int argc , char ** argv )
 {
+ if( argc > 1 )
+  instance = argv[ 1 ];
+
  auto d = read( instance );
  std::cout << d.demand.size() << " scenarios, " << d.demand[ 0 ].size()
 	   << " time steps, design cost " << d.cost << " in [ " << d.lb
