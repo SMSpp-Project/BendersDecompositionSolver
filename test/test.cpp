@@ -372,12 +372,51 @@ int main( void )
   const double ben_nn = solve_from_config( root_nn ,
 					   "BSPar_benders_milp_norm.txt" ,
 					   st_nn , nullptr , & ct_nn );
+
+  /* And with the cut of the phase one in place of the certificate: another
+   * cut, hence another number of them, for the same optimum. */
+
+  auto root_p1 = build_structured( false );
+  int st_p1;
+  long ct_p1 = 0;
+  const double ben_p1 = solve_from_config( root_p1 ,
+					   "BSPar_benders_milp_phase1.txt" ,
+					   st_p1 , nullptr , & ct_p1 );
   ok_ns = ( rel( ref_ns , ben_ns ) <= tol ) &&
-          ( rel( ref_ns , ben_nn ) <= tol );
+          ( rel( ref_ns , ben_nn ) <= tol ) &&
+          ( rel( ref_ns , ben_p1 ) <= tol );
   std::cout << "Benders(MILP,feas-cuts,no-slack) = " << ben_ns
             << " ( " << ct_ns << " cuts )   normalized = " << ben_nn
-            << " ( " << ct_nn << " cuts )   ref = " << ref_ns
+            << " ( " << ct_nn << " cuts )   phase one = " << ben_p1
+            << " ( " << ct_p1 << " cuts )   ref = " << ref_ns
             << ( ok_ns ? "   -> OK" : "   -> FAIL" ) << std::endl;
+  delete root_p1;
+
+  /* The same on four scenarios, where the master can starve several
+   * subproblems at once and the two ways of cutting it away can be told
+   * apart by how many rounds and how many cuts they take. */
+
+  auto mono4 = build_monolithic( false , 4 );
+  int st_r4;
+  const double ref4 = solve_from_config( mono4 , "BSPar_sub.txt" , st_r4 );
+  auto root_f4 = build_structured( false , 4 );
+  auto root_14 = build_structured( false , 4 );
+  int st_f4 , st_14;
+  long it_f4 = 0 , it_14 = 0 , ct_f4 = 0 , ct_14 = 0;
+  const double v_f4 = solve_from_config( root_f4 , "BSPar_benders_milp.txt" ,
+					 st_f4 , & it_f4 , & ct_f4 );
+  const double v_14 = solve_from_config( root_14 ,
+					 "BSPar_benders_milp_phase1.txt" ,
+					 st_14 , & it_14 , & ct_14 );
+  ok_ns = ok_ns && ( rel( ref4 , v_f4 ) <= tol ) &&
+                   ( rel( ref4 , v_14 ) <= tol );
+  std::cout << "4-scenario, no slack: ref = " << ref4 << "   Farkas = "
+            << v_f4 << " ( " << it_f4 << " rounds , " << ct_f4
+            << " cuts )   phase one = " << v_14 << " ( " << it_14
+            << " rounds , " << ct_14 << " cuts )" << std::endl;
+  delete root_f4;
+  delete root_14;
+  delete mono4;
   }
  catch( const std::exception & e ) {
   std::cout << "Benders(MILP,feas-cuts,no-slack): skipped, the subproblem "

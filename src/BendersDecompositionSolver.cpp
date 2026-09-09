@@ -161,6 +161,15 @@ void BendersDecompositionSolver::dismantle( void )
   v_cuts = nullptr;
   }
 
+ /* The phase-one replicas are this Solver's own, and each of them is owned by
+  * the BendersBFunction that took it in: deleting those disposes of both. */
+
+ for( auto bf : v_BF1 )
+  delete bf;
+
+ v_BF1.clear();
+ v_phase1.clear();
+
  v_BF.clear();
  f_ignored.clear();
  v_x.clear();
@@ -555,6 +564,8 @@ void BendersDecompositionSolver::reformulate( void )
                            "nothing to project out" ) );
 
  v_BF.assign( K , nullptr );
+ v_BF1.assign( f_feas_cut == ePhaseOne ? K : 0 , nullptr );
+ v_phase1.assign( f_feas_cut == ePhaseOne ? K : 0 , nullptr );
 
  /* Once its Variable are projected out, a subproblem is no longer a part of
   * the master problem, but it is still a sub-Block of (B): it is the master
@@ -571,9 +582,14 @@ void BendersDecompositionSolver::reformulate( void )
   * function means solving it: which one is a Configuration matter, so that
   * heterogeneous subproblems can be dealt with. */
 
- if( ! f_Bsub_BSCfg.empty() )
+ if( ! f_Bsub_BSCfg.empty() ) {
   for( auto bf : v_BF )
    apply_BSCfg( bf->get_inner_block() , f_Bsub_BSCfg );
+
+  for( auto bf : v_BF1 )
+   if( bf )
+    apply_BSCfg( bf->get_inner_block() , f_Bsub_BSCfg );
+  }
 
  // assemble the master- - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -609,7 +625,11 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
   * *opposite* of the coefficient the Constraint had, and b is the side it
   * has now: F^k x + E^k( y ) <= u becomes E^k( y ) <= u - F^k x. */
 
+ Subset cpl;        // the positions, in scanning order, of the coupling ones
+ Index scanned = 0;
+
  auto scan = [ & ]( FRowConstraint & con ) {
+  const Index pos = scanned++;
   auto lf = dynamic_cast< LinearFunction * >( con.get_function() );
   if( ! lf )
    return;
@@ -641,6 +661,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
   A.push_back( std::move( row ) );
   b.push_back( lhs ? con.get_lhs() : con.get_rhs() );
   cns.push_back( & con );
+  cpl.push_back( pos );
   sides.push_back( ( lhs && rhs ) ? BendersBFunction::eBoth
                                   : ( lhs ? BendersBFunction::eLHS
                                           : BendersBFunction::eRHS ) );
@@ -664,11 +685,167 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
                            " is not coupled to the master by any linear "
                            "Constraint" ) );
 
+ /* The phase one is built before the mapping is handed over, it being built
+  * on the same one. */
+
+ if( f_feas_cut == ePhaseOne ) {
+  std::vector< int > isides( sides.size() );
+  for( Index i = 0 ; i < sides.size() ; ++i )
+   isides[ i ] = int( sides[ i ] );
+  build_phase_one( k , cpl , A , b , isides );
+  }
+
  v_BF[ k ] = new BendersBFunction(
   sub , BendersBFunction::VarVector( v_x ) , std::move( A ) , std::move( b ) ,
   std::move( cns ) , std::move( sides ) , nullptr );
 
  }  // end( BendersDecompositionSolver::build_BendersBFunction )
+
+/*--------------------------------------------------------------------------*/
+
+void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
+                       const std::vector< std::vector< double > > & A ,
+                       const std::vector< double > & b ,
+                       const std::vector< int > & sides )
+{
+ auto sub = f_Block->get_nested_Block( k );
+ auto rep = new AbstractBlock();
+
+ /* The Variable of the subproblem, one for one and with the same type, which
+  * is what says whether they are bounded and how. */
+
+ std::map< const ColVariable * , ColVariable * > y_map;
+ std::vector< const ColVariable * > y_src;
+
+ auto take_y = [ & ]( const ColVariable & var ) {
+  y_src.push_back( & var );
+  };
+
+ for( const auto & el : sub->get_static_variables() )
+  un_any_const_static( el , take_y , un_any_type< ColVariable >() );
+
+ for( const auto & el : sub->get_dynamic_variables() )
+  un_any_const_dynamic( el , take_y , un_any_type< ColVariable >() );
+
+ auto y = new std::vector< ColVariable >( y_src.size() );
+ for( Index i = 0 ; i < y_src.size() ; ++i ) {
+  (*y)[ i ].set_type( y_src[ i ]->get_type() , eNoMod );
+  y_map[ y_src[ i ] ] = & (*y)[ i ];
+  }
+
+ rep->add_static_variable( *y , "y" );
+
+ /* One slack per coupling Constraint, two when it is bounded on both sides,
+  * since either of them can be the violated one. */
+
+ auto sl = new std::vector< ColVariable >( 2 * cpl.size() );
+ for( auto & s : *sl )
+  s.is_positive( true , eNoMod );
+
+ rep->add_static_variable( *sl , "s" );
+
+ /* The Constraint, in the very order they are scanned in, so that the
+  * positions the coupling ones are at are the same. A Constraint that is not
+  * a linear FRowConstraint, or that has a Variable the replica does not have,
+  * is left out: the phase one is then a relaxation of the subproblem, which
+  * only makes its cut weaker. */
+
+ /* The Constraint are appended as they are met, and their address is handed
+  * to the BendersBFunction, hence the room is booked once and for all: the
+  * subproblem has at most as many of them as it has, coupling or not. */
+
+ Index room = 0;
+ for( const auto & el : sub->get_static_constraints() )
+  un_any_const_static( el , [ & room ]( const FRowConstraint & ) { ++room; } ,
+                       un_any_type< FRowConstraint >() );
+ for( const auto & el : sub->get_dynamic_constraints() )
+  un_any_const_dynamic( el , [ & room ]( const FRowConstraint & ) { ++room; } ,
+                        un_any_type< FRowConstraint >() );
+
+ auto cons = new std::vector< FRowConstraint >();
+ cons->reserve( room );
+ Index nxt = 0;      // the next coupling Constraint to be dealt with
+ Index scanned = 0;
+
+ BendersBFunction::ConstraintVector cns;
+ BendersBFunction::MultiVector A1;
+ BendersBFunction::RealVector b1;
+ BendersBFunction::ConstraintSideVector sides1;
+
+ auto scan = [ & ]( const FRowConstraint & con ) {
+  const Index pos = scanned++;
+  const bool coupling = ( nxt < cpl.size() ) && ( pos == cpl[ nxt ] );
+
+  /* Every Constraint of the subproblem is replicated, not just the coupling
+   * ones: without the others the least violation would be zero everywhere
+   * and the phase one would say nothing. */
+
+  auto lf = dynamic_cast< const LinearFunction * >( con.get_function() );
+  if( ! lf ) { if( coupling ) ++nxt; return; }
+
+  LinearFunction::v_coeff_pair cf;
+  bool complete = true;
+  for( auto & cp : lf->get_v_var() ) {
+   auto it = y_map.find( static_cast< const ColVariable * >( cp.first ) );
+   if( it == y_map.end() ) { complete = false; break; }
+   cf.emplace_back( it->second , cp.second );
+   }
+
+  if( ! complete ) { if( coupling ) ++nxt; return; }
+
+  bool lhs = ( con.get_lhs() > - Inf< double >() );
+  bool rhs = ( con.get_rhs() < Inf< double >() );
+
+  if( coupling ) {
+   lhs = ( sides[ nxt ] != int( BendersBFunction::eRHS ) );
+   rhs = ( sides[ nxt ] != int( BendersBFunction::eLHS ) );
+
+   // the slack helps the side it is given to: + on a >=, - on a <=
+   if( lhs )
+    cf.emplace_back( & (*sl)[ 2 * nxt ] , 1 );
+   if( rhs )
+    cf.emplace_back( & (*sl)[ 2 * nxt + 1 ] , -1 );
+   }
+
+  cons->emplace_back();
+  auto & nc = cons->back();
+  nc.set_function( new LinearFunction( std::move( cf ) ) , eNoMod );
+  nc.set_lhs( lhs ? con.get_lhs() : - Inf< double >() , eNoMod );
+  nc.set_rhs( rhs ? con.get_rhs() : Inf< double >() , eNoMod );
+
+  if( coupling ) {
+   cns.push_back( & nc );
+   A1.push_back( A[ nxt ] );
+   b1.push_back( b[ nxt ] );
+   sides1.push_back( BendersBFunction::ConstraintSide( sides[ nxt ] ) );
+   ++nxt;
+   }
+  };
+
+ for( const auto & el : sub->get_static_constraints() )
+  un_any_const_static( el , scan , un_any_type< FRowConstraint >() );
+
+ for( const auto & el : sub->get_dynamic_constraints() )
+  un_any_const_dynamic( el , scan , un_any_type< FRowConstraint >() );
+
+ rep->add_static_constraint( *cons , "coupling" );
+
+ // the total violation, which is what the phase one minimizes
+ auto lf = new LinearFunction();
+ for( auto & s : *sl )
+  lf->add_variable( & s , 1 , eNoMod );
+
+ auto obj = new FRealObjective( rep , lf );
+ obj->set_sense( Objective::eMin , eNoMod );
+ rep->set_objective( obj , eNoMod );
+
+ v_phase1[ k ] = rep;
+ v_BF1[ k ] = new BendersBFunction( rep , BendersBFunction::VarVector( v_x ) ,
+                                    std::move( A1 ) , std::move( b1 ) ,
+                                    std::move( cns ) , std::move( sides1 ) ,
+                                    nullptr );
+
+ }  // end( BendersDecompositionSolver::build_phase_one )
 
 /*--------------------------------------------------------------------------*/
 
@@ -856,13 +1033,43 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   * current assignment and nothing else, hence it is written out of the
   * incumbent rather than out of any certificate. */
 
- auto add_feasibility_cut = [ & ]( const std::vector< double > & g ,
-                                   double alpha ) {
+ auto add_feasibility_cut = [ & ]( Index kk , const std::vector< double > & g ,
+                                   double alpha , bool check = true ) {
   if( f_feas_cut == eAlwaysFeasible )
    throw( std::logic_error( _prfx + "a subproblem is infeasible while "
                             "int_BDSlv_FeasCut says none can be" ) );
 
   if( f_feas_cut == eFarkas ) {
+   add_cut( nullptr , g , alpha );
+   return;
+   }
+
+  if( f_feas_cut == ePhaseOne ) {
+   /* The cut is the linearization of the least violation, asked to be
+    * nonpositive. The phase one is a relaxation of the subproblem whenever
+    * something of it could not be replicated, so the cut may fail to cut the
+    * incumbent: the certificate, which never fails to, is asked for then. */
+
+   auto bf = v_BF1[ kk ];
+   std::vector< double > g1( nx , 0 );
+   double alpha1 = 0;
+
+   if( bf && ( bf->compute() == kOK ) &&
+       ( bf->has_linearization( true ) ||
+         bf->compute_new_linearization( true ) ) ) {
+    bf->get_linearization_coefficients( g1.data() , Range( 0 , nx ) );
+    alpha1 = bf->get_linearization_constant();
+
+    double viol = alpha1;
+    for( Index i = 0 ; i < nx ; ++i )
+     viol += g1[ i ] * v_x[ i ]->get_value();
+
+    if( ( ! check ) || ( viol > tol ) ) {   // it does cut the incumbent
+     add_cut( nullptr , g1 , alpha1 , false );
+     return;
+     }
+    }
+
    add_cut( nullptr , g , alpha );
    return;
    }
@@ -902,10 +1109,11 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   diagonal = ( st == kOK );
 
-  /* An infeasible subproblem that is cut away with something other than the
-   * Farkas certificate does not need one, and asking for it would throw. */
+  /* An infeasible subproblem that is cut away by forbidding the assignment
+   * needs no certificate, and asking for one would throw; the phase one does
+   * ask for it, the certificate being what it falls back on. */
 
-  if( ( ! diagonal ) && ( f_feas_cut != eFarkas ) )
+  if( ( ! diagonal ) && ( f_feas_cut == eCombinatorial ) )
    return( int( kOK ) );
 
   if( ! bf->has_linearization( diagonal ) )
@@ -960,8 +1168,8 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
    if( ! diagonal ) {   // a feasibility cut is never aggregated
     all_feasible = false;
-    if( f_feas_cut == eFarkas )
-     add_cut( nullptr , g , alpha );
+    if( ( f_feas_cut == eFarkas ) || ( f_feas_cut == ePhaseOne ) )
+     add_feasibility_cut( k , g , alpha , false );
     continue;
     }
 
@@ -1031,7 +1239,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
    if( ! diagonal ) {   // a feasibility cut is never aggregated
     all_feasible = false;
-    add_feasibility_cut( g , alpha );
+    add_feasibility_cut( k , g , alpha );
     ++added;
     continue;
     }

@@ -42,10 +42,16 @@ strong, cut. Besides the one the incumbent happens to give,
 and Wong in the one-step form of Papadakos, i.e., by solving the subproblem at
 a core point that moves towards the incumbent as the loop proceeds. Feasibility
 cuts, being rays of the dual polyhedron and therefore defined up to a positive
-multiplier, can be normalized by a norm of their own coefficients; and an
+multiplier, can be normalized by a norm of their own coefficients; an
 infeasible subproblem whose complicating `Variable` are binary can be cut away
 by a combinatorial, or no-good, cut, which forbids the assignment at hand and
-asks nothing at all of the subproblem `Solver`.
+asks nothing at all of the subproblem `Solver`; and it can be cut away by the
+cut of a *phase one*, i.e., of the problem that minimizes the violation of the
+coupling `Constraint` on a replica of the subproblem that gives each of them a
+slack of unit cost. Which cut a given infeasibility yields is decided by the
+normalization the multipliers are subject to, and there the unit costs are
+that normalization: the cut is then the one a bounded separation problem
+selects rather than whichever ray the `Solver` happened to return.
 
 The master and the subproblem `Solver` are instantiated through the `Solver`
 factory and configured via `Configuration`, so that how the master and the

@@ -301,12 +301,29 @@ class BendersDecompositionSolver : public CDASolver
   * - a combinatorial, or no-good, cut, which merely forbids the current
   *   assignment: it asks nothing of the subproblem Solver, but it is only
   *   available when the complicating Variable are all binary, and it is much
-  *   weaker, cutting away one point at a time [Codato and Fischetti]. */
+  *   weaker, cutting away one point at a time [Codato and Fischetti];
+  *
+  * - the cut of a *phase one*, i.e., of the problem that minimizes the total
+  *   violation of the coupling Constraint by giving each of them a slack of
+  *   unit cost. That problem is feasible whatever x, its value is zero
+  *   exactly where the subproblem has a solution, and it is a value function
+  *   like any other: its linearization at the incumbent, asked to be
+  *   nonpositive, is a feasibility cut. Which cut a given infeasibility
+  *   yields is decided by the normalization the certificate is subject to,
+  *   and here the multipliers are bounded by the unit costs, which is the
+  *   normalization Fischetti, Salvagnin and Zanette recommend: the cut is
+  *   therefore not an arbitrary ray but the one a bounded separation problem
+  *   selects. The subproblem is *replicated*, so nothing of the user's is
+  *   touched, and whatever cannot be replicated is left out, which makes the
+  *   phase one a relaxation: a relaxation still cuts no feasible x, and when
+  *   its cut does not cut the incumbent the Farkas certificate is asked for
+  *   instead. */
 
  enum feasibility_cut_type {
   eAlwaysFeasible = 0 ,  ///< the subproblem cannot be infeasible
   eFarkas         = 1 ,  ///< the Farkas certificate of the infeasibility
-  eCombinatorial  = 2    ///< a no-good cut on the binary complicating Variable
+  eCombinatorial  = 2 ,  ///< a no-good cut on the binary complicating Variable
+  ePhaseOne       = 3    ///< the cut of the minimum-violation problem
   };
 
  /// which of the many cuts a degenerate subproblem offers is taken
@@ -561,6 +578,25 @@ class BendersDecompositionSolver : public CDASolver
  /// them into the affine mapping (A_k, b_k) of the k-th BendersBFunction
  void build_BendersBFunction( Index k );
 
+/*--------------------------------------------------------------------------*/
+ /// build the phase-one value function of subproblem \p k
+ /** Replicates subproblem \p k into an AbstractBlock of this Solver's own,
+  *  gives each of its coupling Constraint, the ones at the positions \p cpl
+  *  in the order the Constraint of the subproblem are scanned, a slack of
+  *  unit cost, and makes the sum of those slacks the Objective: the value of
+  *  the problem is then the least total violation of the coupling, which is
+  *  zero exactly where the subproblem has a solution. The affine mapping is
+  *  the one of the subproblem, \p A and \p b, on the same \p sides.
+  *
+  *  Only ColVariable and linear FRowConstraint are replicated: anything else
+  *  is left out, which turns the replica into a relaxation and the cut into a
+  *  weaker, but still valid, one [see feasibility_cut_type]. */
+
+ void build_phase_one( Index k , const Subset & cpl ,
+                       const std::vector< std::vector< double > > & A ,
+                       const std::vector< double > & b ,
+                       const std::vector< int > & sides );
+
  /// assemble the convex master Objective d( x ) + \sum_k v^k( x )
  void build_convex_master( void );
 
@@ -651,6 +687,16 @@ class BendersDecompositionSolver : public CDASolver
 
  /// the Benders cuts of the MILP master
  std::list< FRowConstraint > * v_cuts{};
+
+ /// the phase-one value function of each subproblem, if it is being used
+ /** One per subproblem, each on a replica of it that carries a slack of unit
+  * cost on every coupling Constraint [see feasibility_cut_type]; empty unless
+  * int_BDSlv_FeasCut says #ePhaseOne. */
+
+ std::vector< BendersBFunction * > v_BF1;
+
+ /// the replicas the phase-one value functions are built on
+ std::vector< Block * > v_phase1;
 
  /// true once the reformulation has been done
  bool f_reformulated = false;
