@@ -55,7 +55,11 @@ Method        1   # 0 = primal, 1 = dual simplex, 2 = barrier: the multipliers
                   # from scratch at every call, while the simplex re-optimises
                   # after the new columns for a fraction of the iterations
 Presolve      0   # 0 = off, 1 = conservative, 2 = aggressive (default -1)
-NumericFocus  3   # 0 = auto (default), 1..3 = increasing precision focus
+NumericFocus  0   # 0 = auto (default), 1..3 = increasing precision focus:
+                  # the master is small and re-solved thousands of times, and
+                  # asking GUROBI for extra care costs on every one of them
+                  # while buying nothing here, the bound coming out the same
+                  # to the last digit
 
 5 # number of double parameters
 
