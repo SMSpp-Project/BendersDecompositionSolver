@@ -43,13 +43,18 @@ intBPar6          0 # second parameter for dynamic max n. of items per iteration
 intBPar7         11 # how to deal with the global pools
 intMnSSC          0 # min number of consecutive SS with the same t for a t increase
 intMnNSC          1 # min number of consecutive NS with the same t for a t decrease
-inttSPar1         0 # long-term t-strategy (0 = none, 4 = soft, 8 = hard, 12 = balancing)
+inttSPar1        12 # long-term t-strategy (0 = none, 4 = soft, 8 = hard,
+                    # 12 = balancing): the master knows nothing of the scale
+                    # of the design Variable, and letting it balance the
+                    # stabilization against the model is what finds it
 intMaxNrEvls      2 # maximum number of function evaluations at each iteration
 
 15 # number of double parameters
 
 # now all the double parameters
-dblRelAcc     1e-9 # relative accuracy required to solution
+dblRelAcc     1e-6 # relative accuracy required to solution: the values of
+                   # these problems are of order 1e6, asking for 1e-9 costs
+                   # half the time and buys nothing
 dblNZEps      1e-8 # stopping parameter: threshold to declare 0 the || residual ||
 dbltStar      1e+4 # stopping parameter: multiplied to || residual || to estimate gap
 dblBPar5         4 # first parameter for dynamic max n. of items per iteration
@@ -62,7 +67,8 @@ dblmxDecr      0.1 # max decrease of t
 dblmnDecr     0.66 # min decrease of t (each time it is decreased)
 dbltMaior     1e+6 # maximum value for t
 dbltMinor     1e-4 # minimum value for t
-dbltInit         1 # initial value for t
+dbltInit      1e+5 # initial value for t: a Variable that lives on 1e5 is not
+                   # moved by steps of order one
 dbltSPar2    0.001 # parameter for the long-term t-strategy
 
 1 # number of string parameters
