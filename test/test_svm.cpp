@@ -346,6 +346,26 @@ int main( int argc , char ** argv )
  const double bd = solve_from_config( & ben , "BSPar_svm_benders.txt" , st_bd ,
                                       t_bd , false , & it_bd , & ct_bd );
 
+ /* The same, with the cuts of all the chunks aggregated into one: the two
+  * describe the same problem, so what is being compared is how many rounds
+  * and how many cuts each of them takes to get there. */
+
+ SVCBlock bens;
+ bens.set_kernel( SVMBlock::kLinear );
+ bens.set_C( 1 );
+ bens.load( n , m , X , y );
+ bens.set_structure( & bcfg );
+ bens.generate_abstract_variables();
+ bens.generate_abstract_constraints();
+ bens.generate_objective();
+
+ double t_bs;
+ int st_bs;
+ long it_bs = 0 , ct_bs = 0;
+ const double bs = solve_from_config( & bens , "BSPar_svm_benders_single.txt" ,
+                                      st_bs , t_bs , false , & it_bs ,
+                                      & ct_bs );
+
  // ----- the same, with the master given to the bundle -------------------- #
 
  /* The regularisation term makes the master strongly convex, which is what
@@ -398,7 +418,12 @@ int main( int argc , char ** argv )
            << e_bd << " , status " << st_bd << " , " << it_bd << " rounds , "
            << ct_bd << " cuts )" << std::endl;
 
+ std::cout << "Benders (single) = " << bs << "  ( " << t_bs << " s , err "
+           << rel( smo , bs ) << " , status " << st_bs << " , " << it_bs
+           << " rounds , " << ct_bs << " cuts )" << std::endl;
+
  const bool ok = ( e_ld <= tol ) && ( e_bd <= tol ) && ( e_bdb <= tol ) &&
+                 ( rel( smo , bs ) <= tol ) &&
                  ( ( ! has_lsvm ) || ( rel( smo , lsvm ) <= tol ) );
  std::cout << ( ok ? "-> OK ( the two decompositions agree )"
                    : "-> FAIL" ) << std::endl;
