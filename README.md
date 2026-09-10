@@ -15,13 +15,20 @@ assembling the master problem and driving the cut loop.
 
 The Block (B) is assumed to have the following structure:
 
-- the root (B) plays the role of the master: its `ColVariable` are the
-  complicating `Variable`, and its `Objective` and `Constraint` are the
-  first-stage objective and feasible region;
+- the root (B) plays the role of the master: its `Objective` and `Constraint`
+  are the first-stage objective and feasible region, and its `ColVariable`
+  are the complicating `Variable`;
 
 - each sub-`Block` is a subproblem, with its own `Variable`, `Objective` and
   `Constraint`, coupled to the master only through the appearance of (some of)
   the complicating `Variable` in (some of) its `Constraint`.
+
+The same Block, however, admits many Benders reformulations, and which one is
+wanted is a choice of whoever poses the problem: two parameters say it. The
+`vintMasterBlock` one names the positions of the sub-`Block` the master keeps
+for itself, the subproblems being the ones that are left, and `vintMasterVars`
+names the positions of the complicating `Variable` among those the master
+exposes. Both empty, which is the default, is the structure described above.
 
 Two regimes are supported for solving the master problem, selected by a
 parameter:

@@ -68,6 +68,11 @@ static const std::vector< std::string > dbl_pars_BDSlv = {
  "dbl_BDSlv_CoreMove"
  };
 
+static const std::vector< std::string > vint_pars_BDSlv = {
+ "vintMasterBlock" ,
+ "vintMasterVars"
+ };
+
 static const std::vector< std::string > str_pars_BDSlv = {
  "str_BDSlv_MSName" ,
  "str_Bsub_BSCfg" ,
@@ -171,6 +176,7 @@ void BendersDecompositionSolver::dismantle( void )
  v_phase1.clear();
 
  v_BF.clear();
+ v_sub.clear();
  f_ignored.clear();
  v_x.clear();
  x_index.clear();
@@ -337,6 +343,13 @@ Solver::idx_type BendersDecompositionSolver::get_num_dbl_par( void ) const
 
 /*--------------------------------------------------------------------------*/
 
+Solver::idx_type BendersDecompositionSolver::get_num_vint_par( void ) const
+{
+ return( vintLastBDSlvPar );
+ }
+
+/*--------------------------------------------------------------------------*/
+
 Solver::idx_type BendersDecompositionSolver::get_num_str_par( void ) const
 {
  // TODO: add the master Solver str parameters once f_master_solver exists
@@ -367,6 +380,19 @@ double BendersDecompositionSolver::get_dflt_dbl_par( idx_type par ) const
   case( dbl_BDSlv_CoreMove ): return( 0.5 );
   default:                    return( CDASolver::get_dflt_dbl_par( par ) );
   }
+ }
+
+/*--------------------------------------------------------------------------*/
+
+const std::vector< int > & BendersDecompositionSolver::get_dflt_vint_par(
+						      idx_type par ) const
+{
+ // both empty: the root is the master, its sub-Block are the subproblems and
+ // its ColVariable are the complicating ones
+ static const std::vector< int > empty;
+ if( ( par >= vintLastParCDAS ) && ( par < vintLastBDSlvPar ) )
+  return( empty );
+ return( CDASolver::get_dflt_vint_par( par ) );
  }
 
 /*--------------------------------------------------------------------------*/
@@ -404,6 +430,17 @@ Solver::idx_type BendersDecompositionSolver::dbl_par_str2idx(
 
 /*--------------------------------------------------------------------------*/
 
+Solver::idx_type BendersDecompositionSolver::vint_par_str2idx(
+					 const std::string & name ) const
+{
+ for( idx_type i = 0 ; i < vint_pars_BDSlv.size() ; ++i )
+  if( name == vint_pars_BDSlv[ i ] )
+   return( vintLastParCDAS + i );
+ return( CDASolver::vint_par_str2idx( name ) );
+ }
+
+/*--------------------------------------------------------------------------*/
+
 Solver::idx_type BendersDecompositionSolver::str_par_str2idx(
 					 const std::string & name ) const
 {
@@ -431,6 +468,16 @@ const std::string & BendersDecompositionSolver::dbl_par_idx2str(
  if( ( idx >= dblLastParCDAS ) && ( idx < dblLastBDSlvPar ) )
   return( dbl_pars_BDSlv[ idx - dblLastParCDAS ] );
  return( CDASolver::dbl_par_idx2str( idx ) );
+ }
+
+/*--------------------------------------------------------------------------*/
+
+const std::string & BendersDecompositionSolver::vint_par_idx2str(
+						      idx_type idx ) const
+{
+ if( ( idx >= vintLastParCDAS ) && ( idx < vintLastBDSlvPar ) )
+  return( vint_pars_BDSlv[ idx - vintLastParCDAS ] );
+ return( CDASolver::vint_par_idx2str( idx ) );
  }
 
 /*--------------------------------------------------------------------------*/
@@ -466,6 +513,18 @@ void BendersDecompositionSolver::set_par( idx_type par , double value )
  switch( par ) {
   case( dbl_BDSlv_CoreMove ): f_core_move = value; return;
   default:                    CDASolver::set_par( par , value );
+  }
+ }
+
+/*--------------------------------------------------------------------------*/
+
+void BendersDecompositionSolver::set_par( idx_type par ,
+					  std::vector< int > && value )
+{
+ switch( par ) {
+  case( vintMasterBlock ): v_master_block = std::move( value );  return;
+  case( vintMasterVars ):  v_master_vars = std::move( value );   return;
+  default:                 CDASolver::set_par( par , std::move( value ) );
   }
  }
 
@@ -510,6 +569,18 @@ double BendersDecompositionSolver::get_dbl_par( idx_type par ) const
 
 /*--------------------------------------------------------------------------*/
 
+const std::vector< int > & BendersDecompositionSolver::get_vint_par(
+						      idx_type par ) const
+{
+ switch( par ) {
+  case( vintMasterBlock ): return( v_master_block );
+  case( vintMasterVars ):  return( v_master_vars );
+  default:                 return( CDASolver::get_vint_par( par ) );
+  }
+ }
+
+/*--------------------------------------------------------------------------*/
+
 const std::string & BendersDecompositionSolver::get_str_par(
 						      idx_type par ) const
 {
@@ -542,10 +613,9 @@ void BendersDecompositionSolver::reformulate( void )
  v_x.clear();
  x_index.clear();
 
- auto take = [ this ]( ColVariable & var ) {
-  x_index[ & var ] = v_x.size();
-  v_x.push_back( & var );
-  };
+ std::vector< ColVariable * > all;
+
+ auto take = [ & all ]( ColVariable & var ) { all.push_back( & var ); };
 
  for( const auto & el : f_Block->get_static_variables() )
   un_any_const_static( el , take , un_any_type< ColVariable >() );
@@ -553,19 +623,53 @@ void BendersDecompositionSolver::reformulate( void )
  for( const auto & el : f_Block->get_dynamic_variables() )
   un_any_const_dynamic( el , take , un_any_type< ColVariable >() );
 
+ /* Which of them are complicating is a choice, not a property of the Block
+  * [see vintMasterVars]: saying nothing means all of them, which is the
+  * convention this Solver was written with. */
+
+ if( v_master_vars.empty() )
+  v_x = std::move( all );
+ else
+  for( auto p : v_master_vars ) {
+   if( ( p < 0 ) || ( std::size_t( p ) >= all.size() ) )
+    throw( std::logic_error( _prfx + "vintMasterVars names the Variable " +
+                             std::to_string( p ) + ", which the master does "
+                             "not have" ) );
+   v_x.push_back( all[ p ] );
+   }
+
+ for( Index i = 0 ; i < v_x.size() ; ++i )
+  x_index[ v_x[ i ] ] = i;
+
  if( v_x.empty() )
   throw( std::logic_error( _prfx + "no complicating Variable in the Block" ) );
 
- // one BendersBFunction per sub-Block - - - - - - - - - - - - - - - - - - - -
+ // one BendersBFunction per subproblem - - - - - - - - - - - - - - - - - - -
 
  const Index K = f_Block->get_number_nested_Blocks();
  if( ! K )
   throw( std::logic_error( _prfx + "the Block has no sub-Block, hence "
                            "nothing to project out" ) );
 
- v_BF.assign( K , nullptr );
- v_BF1.assign( f_feas_cut == ePhaseOne ? K : 0 , nullptr );
- v_phase1.assign( f_feas_cut == ePhaseOne ? K : 0 , nullptr );
+ /* Which sub-Block are subproblems is the other half of the choice [see
+  * vintMasterBlock]: the ones the master does not keep for itself. */
+
+ v_sub.clear();
+ for( Index k = 0 ; k < K ; ++k )
+  if( std::find( v_master_block.begin() , v_master_block.end() , int( k ) )
+      == v_master_block.end() )
+   v_sub.push_back( k );
+
+ if( v_sub.empty() )
+  throw( std::logic_error( _prfx + "vintMasterBlock keeps every sub-Block in "
+                           "the master, hence there is nothing to project "
+                           "out" ) );
+
+ const Index NS = v_sub.size();
+
+ v_BF.assign( NS , nullptr );
+ v_BF1.assign( f_feas_cut == ePhaseOne ? NS : 0 , nullptr );
+ v_phase1.assign( f_feas_cut == ePhaseOne ? NS : 0 , nullptr );
 
  /* Once its Variable are projected out, a subproblem is no longer a part of
   * the master problem, but it is still a sub-Block of (B): it is the master
@@ -573,8 +677,8 @@ void BendersDecompositionSolver::reformulate( void )
 
  f_ignored.clear();
 
- for( Index k = 0 ; k < K ; ++k ) {
-  f_ignored.insert( f_Block->get_nested_Block( k ) );
+ for( Index k = 0 ; k < NS ; ++k ) {
+  f_ignored.insert( f_Block->get_nested_Block( v_sub[ k ] ) );
   build_BendersBFunction( k );
   }
 
@@ -609,7 +713,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
  static const std::string _prfx =
                   "BendersDecompositionSolver::build_BendersBFunction: ";
 
- auto sub = f_Block->get_nested_Block( k );
+ auto sub = f_Block->get_nested_Block( v_sub[ k ] );
 
  BendersBFunction::MultiVector A;
  BendersBFunction::RealVector b;
@@ -681,7 +785,8 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
   un_any_const_dynamic( el , scan , un_any_type< FRowConstraint >() );
 
  if( cns.empty() )
-  throw( std::logic_error( _prfx + "sub-Block " + std::to_string( k ) +
+  throw( std::logic_error( _prfx + "sub-Block " +
+                           std::to_string( v_sub[ k ] ) +
                            " is not coupled to the master by any linear "
                            "Constraint" ) );
 
@@ -708,7 +813,7 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
                        const std::vector< double > & b ,
                        const std::vector< int > & sides )
 {
- auto sub = f_Block->get_nested_Block( k );
+ auto sub = f_Block->get_nested_Block( v_sub[ k ] );
  auto rep = new AbstractBlock();
 
  /* The Variable of the subproblem, one for one and with the same type, which

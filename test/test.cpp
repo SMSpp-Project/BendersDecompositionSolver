@@ -353,6 +353,32 @@ int main( void )
   return( std::abs( a - b )
 	  / std::max( 1.0 , std::max( std::abs( a ) , std::abs( b ) ) ) );
   };
+ /* ----- the master says what is master and what is complicating --------- #
+  *
+  * The same four-scenario problem, with the first scenario kept in the master
+  * instead of being projected out and the complicating Variable named one by
+  * one: which sub-Block are subproblems and which Variable are complicating
+  * is a choice, and a different choice describes the very same problem, hence
+  * the optimum has to be the one of the extensive form. What changes is the
+  * work: one subproblem fewer to evaluate, and a larger master. */
+
+ bool ok_k = true;
+ { auto mono_k = build_monolithic( true , 4 );
+   int st_rk;
+   const double ref_k = solve_from_config( mono_k , "BSPar_sub.txt" , st_rk );
+   auto root_k = build_structured( true , 4 );
+   int st_k;
+   long it_k = 0 , ct_k = 0;
+   const double v_k = solve_from_config( root_k , "BSPar_benders_milp_keep.txt" ,
+					 st_k , & it_k , & ct_k );
+   ok_k = ( rel( ref_k , v_k ) <= tol );
+   std::cout << "4-scenario, first one kept in the master: " << v_k << " ( "
+             << it_k << " rounds , " << ct_k << " cuts )   ref = " << ref_k
+             << ( ok_k ? "   -> OK" : "   -> FAIL" ) << std::endl;
+   delete root_k;
+   delete mono_k;
+   }
+
  auto mono_ns = build_monolithic( false );
  int st_ns_ref;
  const double ref_ns = solve_from_config( mono_ns , "BSPar_sub.txt" ,
@@ -475,7 +501,7 @@ int main( void )
 	       && ( rel( ref2 , ben_s2 ) <= tol );
  std::cout << "2-scenario: " << ( ok2 ? "-> OK" : "-> FAIL" ) << std::endl;
 
- const bool ok = ok1 && ok2 && ok_ns && ok_ng;
+ const bool ok = ok1 && ok2 && ok_ns && ok_ng && ok_k;
 
  delete root_s2;
  delete root_m2;

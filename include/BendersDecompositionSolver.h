@@ -166,10 +166,13 @@ namespace SMSpp_di_unipi_it
  * generation, which lives in BendersBFunction. Its job is the *automation*
  * layer:
  *
- * 1. scan the root (B) to detect the complicating Variable x and, in each
- *    sub-Block (B^k), the Constraint that are linear in x; strip the F^k x
- *    term from those Constraint (recording F^k) and build one BendersBFunction
- *    v^k( x ) per sub-Block;
+ * 1. take the complicating Variable x and the subproblems as the two
+ *    vector-of-int parameters say [see vintMasterBlock and vintMasterVars],
+ *    the same Block admitting many Benders reformulations and which one is
+ *    wanted being a choice of whoever poses the problem rather than something
+ *    that can be read off it; find, in each subproblem (B^k), the Constraint
+ *    that are linear in x, strip the F^k x term from them (recording F^k) and
+ *    build one BendersBFunction v^k( x ) per subproblem;
  *
  * 2. assemble an internal master Block representing (O') and solve it;
  *
@@ -502,6 +505,32 @@ class BendersDecompositionSolver : public CDASolver
 
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
+ /// public enum of the vector-of-int parameters specific to this Solver
+ /** Which sub-Block are the master and which Variable are the complicating
+  * ones is not something that can be read off a Block: the same Block admits
+  * many Benders reformulations, and which one is wanted is a choice of
+  * whoever poses the problem. These two say it, in the simplest way that
+  * covers the models whose subproblems are sub-Block of the master: the
+  * *positions* of the sub-Block that belong to the master, the subproblems
+  * being the ones that are left, and the positions of the complicating
+  * Variable among those the master exposes.
+  *
+  * Both empty, which is the default, is the convention this Solver had
+  * before they existed: the root is the master, every sub-Block of it is a
+  * subproblem, and every ColVariable of the root is complicating. */
+
+ enum vint_par_type_BDSlv {
+  vintMasterBlock = vintLastParCDAS ,
+  ///< positions of the sub-Block that are part of the master
+
+  vintMasterVars ,
+  ///< positions, among those of the master, of the complicating Variable
+
+  vintLastBDSlvPar  ///< first allowed parameter value for derived classes
+  };
+
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
+
  /// public enum of the string parameters specific to BendersDecompositionSolver
  enum str_par_type_BDSlv {
   str_BDSlv_MSName = strLastParCDAS ,
@@ -522,11 +551,16 @@ class BendersDecompositionSolver : public CDASolver
 
  [[nodiscard]] idx_type get_num_dbl_par( void ) const override;
 
+ [[nodiscard]] idx_type get_num_vint_par( void ) const override;
+
  [[nodiscard]] idx_type get_num_str_par( void ) const override;
 
  [[nodiscard]] int get_dflt_int_par( idx_type par ) const override;
 
  [[nodiscard]] double get_dflt_dbl_par( idx_type par ) const override;
+
+ [[nodiscard]] const std::vector< int > & get_dflt_vint_par( idx_type par )
+  const override;
 
  [[nodiscard]] const std::string & get_dflt_str_par( idx_type par )
   const override;
@@ -535,6 +569,9 @@ class BendersDecompositionSolver : public CDASolver
   const override;
 
  [[nodiscard]] idx_type int_par_str2idx( const std::string & name )
+  const override;
+
+ [[nodiscard]] idx_type vint_par_str2idx( const std::string & name )
   const override;
 
  [[nodiscard]] idx_type str_par_str2idx( const std::string & name )
@@ -546,6 +583,9 @@ class BendersDecompositionSolver : public CDASolver
  [[nodiscard]] const std::string & int_par_idx2str( idx_type idx )
   const override;
 
+ [[nodiscard]] const std::string & vint_par_idx2str( idx_type idx )
+  const override;
+
  [[nodiscard]] const std::string & str_par_idx2str( idx_type idx )
   const override;
 
@@ -555,11 +595,16 @@ class BendersDecompositionSolver : public CDASolver
 
  void set_par( idx_type par , const std::string & value ) override;
 
+ void set_par( idx_type par , std::vector< int > && value ) override;
+
  [[nodiscard]] int get_int_par( idx_type par ) const override;
 
  [[nodiscard]] double get_dbl_par( idx_type par ) const override;
 
  [[nodiscard]] const std::string & get_str_par( idx_type par ) const override;
+
+ [[nodiscard]] const std::vector< int > & get_vint_par( idx_type par )
+  const override;
 
 /** @} ---------------------------------------------------------------------*/
 /*-------------------- PROTECTED PART OF THE CLASS -------------------------*/
@@ -682,6 +727,11 @@ class BendersDecompositionSolver : public CDASolver
  /// the position of each complicating Variable in v_x
  std::map< const ColVariable * , Index > x_index;
 
+ /// which sub-Block of (B) are the subproblems, in the order they are dealt
+ /// with: everything that vintMasterBlock does not keep in the master
+
+ std::vector< Index > v_sub;
+
  /// the epigraph Variable of the MILP master, one per cut family
  std::vector< ColVariable > * v_eta{};
 
@@ -739,6 +789,10 @@ class BendersDecompositionSolver : public CDASolver
  std::string f_Bsub_BSCfg;  ///< str_Bsub_BSCfg
 
  std::string f_Mstr_BSCfg;  ///< str_Mstr_BSCfg
+
+ std::vector< int > v_master_block;  ///< vintMasterBlock
+
+ std::vector< int > v_master_vars;   ///< vintMasterVars
 
 /*--------------------------------------------------------------------------*/
 /*------------------------- PRIVATE PART OF THE CLASS ----------------------*/
