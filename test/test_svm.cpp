@@ -95,6 +95,55 @@ static void make_data( Index n , Index m , doubleVec & X , doubleVec & y ,
  }
 
 /*--------------------------------------------------------------------------*/
+
+/* The samples in the feature space of the polynomial kernel of degree two.
+ *
+ * Both structures split the primal, which lives in the weights, so both want
+ * a model, and a model is a finite object only when the feature map is. The
+ * polynomial kernel has one: with K( x , z ) = ( g < x , z > + r )^2,
+ *
+ *   ( g < x , z > + r )^2 = g^2 ( sum_i x_i z_i )^2
+ *                           + 2 g r sum_i x_i z_i + r^2
+ *
+ * and reading the three terms off as inner products gives, for each sample,
+ * the 1 + m + m ( m + 1 ) / 2 components
+ *
+ *   r ,  sqrt( 2 g r ) x_i ,  g x_i^2 ,  sqrt( 2 ) g x_i x_j  ( i < j ) ,
+ *
+ * whose inner product is the kernel exactly, not approximately. Training on
+ * the expanded samples with the linear kernel is therefore the very same
+ * problem as training on the original ones with the polynomial kernel, which
+ * is checked rather than assumed [see main()]. */
+
+static Index poly_expand( const doubleVec & X , Index n , Index m ,
+                          double g , double r , doubleVec & Xp )
+{
+ const Index mp = 1 + m + m * ( m + 1 ) / 2;
+
+ Xp.resize( std::size_t( n ) * mp );
+
+ const double lin = std::sqrt( 2 * g * r );
+ const double mix = std::sqrt( 2.0 ) * g;
+
+ for( Index i = 0 ; i < n ; ++i ) {
+  const double * x = X.data() + std::size_t( i ) * m;
+  double * z = Xp.data() + std::size_t( i ) * mp;
+
+  Index h = 0;
+  z[ h++ ] = r;
+  for( Index j = 0 ; j < m ; ++j )
+   z[ h++ ] = lin * x[ j ];
+  for( Index j = 0 ; j < m ; ++j )
+   z[ h++ ] = g * x[ j ] * x[ j ];
+  for( Index j = 0 ; j < m ; ++j )
+   for( Index k = j + 1 ; k < m ; ++k )
+    z[ h++ ] = mix * x[ j ] * x[ k ];
+  }
+
+ return( mp );
+ }
+
+/*--------------------------------------------------------------------------*/
 /*------------------------------ SOLVING -----------------------------------*/
 /*--------------------------------------------------------------------------*/
 
@@ -255,18 +304,40 @@ int main( int argc , char ** argv )
  // left out when only the two Benders are of interest
  const bool do_ld = ( argc > 4 ) ? ( std::stoi( argv[ 4 ] ) != 0 ) : true;
 
+ /* Which kernel the comparison is run under: 1, the default, is the linear
+  * one, and 2 the polynomial one of degree two, reached through its feature
+  * map [see poly_expand()], the two structures asking for a model and a model
+  * being a finite object only when the map is. */
+ const Index deg = ( argc > 5 ) ? std::stoi( argv[ 5 ] ) : 1;
+ if( ( deg != 1 ) && ( deg != 2 ) ) {
+  std::cerr << "the degree can only be 1 or 2" << std::endl;
+  return( 1 );
+  }
+
  doubleVec X , y;
  make_data( n , m , X , y , 1 );
 
- std::cout << n << " samples, " << m << " features, " << P << " chunks"
-           << std::endl;
+ // the parameters of the polynomial kernel, fixed rather than derived from
+ // the data set, so that the map and the kernel are the same function
+ const double p_gamma = 1.0 / m , p_coef0 = 1;
+
+ doubleVec Xp;
+ const Index mp = ( deg == 2 ) ? poly_expand( X , n , m , p_gamma , p_coef0 ,
+                                              Xp ) : m;
+ const doubleVec & Xd = ( deg == 2 ) ? Xp : X;
+
+ std::cout << n << " samples, " << m << " features, " << P << " chunks";
+ if( deg == 2 )
+  std::cout << ", polynomial kernel of degree 2, " << mp
+            << " features in the feature space";
+ std::cout << std::endl;
 
  // ----- the reference: the ad hoc Solver on the whole problem ------------ #
 
  SVCBlock svm;
  svm.set_kernel( SVMBlock::kLinear );
  svm.set_C( 1 );
- svm.load( n , m , X , y );
+ svm.load( n , mp , Xd , y );
 
  double t_smo;
  int st_smo;
@@ -275,6 +346,30 @@ int main( int argc , char ** argv )
 
  std::cout << "SMOSolver        = " << smo << "  ( " << t_smo << " s )"
            << std::endl;
+
+ /* That the feature map is the kernel is checked and not assumed: the very
+  * same samples are trained on with the polynomial kernel, which the ad hoc
+  * Solver evaluates itself and which needs no model, and the two optima have
+  * to be the same number. Nothing below would notice if they were not, the
+  * expanded instance being a perfectly good training problem of its own. */
+
+ if( deg == 2 ) {
+  SVCBlock ker;
+  ker.set_kernel( SVMBlock::kPoly , p_gamma , 2 , p_coef0 );
+  ker.set_C( 1 );
+  ker.load( n , m , X , y );
+
+  double t_ker;
+  int st_ker;
+  const double kv = solve_from_config( & ker , "BSPar_svm_smo.txt" , st_ker ,
+                                       t_ker );
+
+  const double err = std::abs( kv - smo ) / std::max( 1.0 , std::abs( smo ) );
+  std::cout << "  the kernel itself = " << kv << " , relative difference "
+            << err << ( err <= 1e-9 ? "  (the map is the kernel)"
+                                    : "  *** THE MAP IS NOT THE KERNEL ***" )
+            << std::endl;
+  }
 
  // ----- the other yardstick: LIBSVM, if SVMBlock was built with it ------- #
 
@@ -295,7 +390,7 @@ int main( int argc , char ** argv )
   SVCBlock lsv;
   lsv.set_kernel( SVMBlock::kLinear );
   lsv.set_C( 1 );
-  lsv.load( n , m , X , y );
+  lsv.load( n , mp , Xd , y );
 
   int st_lsvm;
   lsvm = solve_from_config( & lsv , "BSPar_svm_libsvm.txt" , st_lsvm ,
@@ -310,7 +405,7 @@ int main( int argc , char ** argv )
  SVCBlock cns;
  cns.set_kernel( SVMBlock::kLinear );
  cns.set_C( 1 );
- cns.load( n , m , X , y );
+ cns.load( n , mp , Xd , y );
 
  SimpleConfiguration< std::pair< int , int > > ccfg(
   std::make_pair( int( SVMBlock::kConsensus ) , int( P ) ) );
@@ -331,7 +426,7 @@ int main( int argc , char ** argv )
  SVCBlock ben;
  ben.set_kernel( SVMBlock::kLinear );
  ben.set_C( 1 );
- ben.load( n , m , X , y );
+ ben.load( n , mp , Xd , y );
 
  SimpleConfiguration< std::pair< int , int > > bcfg(
   std::make_pair( int( SVMBlock::kBenders ) , int( P ) ) );
@@ -353,7 +448,7 @@ int main( int argc , char ** argv )
  SVCBlock bens;
  bens.set_kernel( SVMBlock::kLinear );
  bens.set_C( 1 );
- bens.load( n , m , X , y );
+ bens.load( n , mp , Xd , y );
  bens.set_structure( & bcfg );
  bens.generate_abstract_variables();
  bens.generate_abstract_constraints();
@@ -381,7 +476,7 @@ int main( int argc , char ** argv )
  int st_bdb = 0;
  double bdb = smo;
  bool has_bdb = false;
- { auto abs_ben = build_benders_abstract( ben , n , m , X , y , 1.0 );
+ { auto abs_ben = build_benders_abstract( ben , n , mp , Xd , y , 1.0 );
    try {
     /* The bundle master minimizes, so what it converges to is its upper
      * bound, its lower one being the model value. */
