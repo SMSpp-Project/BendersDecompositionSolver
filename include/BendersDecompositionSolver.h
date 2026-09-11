@@ -317,10 +317,12 @@ class BendersDecompositionSolver : public CDASolver
   *   normalization Fischetti, Salvagnin and Zanette recommend: the cut is
   *   therefore not an arbitrary ray but the one a bounded separation problem
   *   selects. The subproblem is *replicated*, so nothing of the user's is
-  *   touched, and whatever cannot be replicated is left out, which makes the
-  *   phase one a relaxation: a relaxation still cuts no feasible x, and when
-  *   its cut does not cut the incumbent the Farkas certificate is asked for
-  *   instead. */
+  *   touched, and the replica is the copy of its abstract representation
+  *   that the Block makes of itself [see AbstractBlock::mirror()] rather
+  *   than something assembled here: whatever that copy cannot reproduce is
+  *   left out and said, which makes the phase one a relaxation, and a
+  *   relaxation still cuts no feasible x; when its cut does not cut the
+  *   incumbent the Farkas certificate is asked for instead. */
 
  enum feasibility_cut_type {
   eAlwaysFeasible = 0 ,  ///< the subproblem cannot be infeasible

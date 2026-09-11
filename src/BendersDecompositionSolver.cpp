@@ -814,117 +814,37 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
                        const std::vector< int > & sides )
 {
  auto sub = f_Block->get_nested_Block( v_sub[ k ] );
+
+ /* The replica of the subproblem is the copy of its abstract representation
+  * that any Block can be asked for [see AbstractBlock::mirror()], hence it
+  * is the subproblem and not something assembled here out of the pieces of
+  * it that this Solver happens to know how to read; the copy also says which
+  * of its Constraint is the copy of which, which is how the coupling ones
+  * are found below. What the phase one adds to it is one slack per side a
+  * coupling Constraint can be violated on, and the Objective that minimizes
+  * their sum in place of the one of the subproblem. */
+
  auto rep = new AbstractBlock();
+ rep->mirror( sub );
 
- /* The Variable of the subproblem, one for one and with the same type, which
-  * is what says whether they are bounded and how. */
+ /* A Constraint the copy could not reproduce makes the phase one a
+  * relaxation of the subproblem, which still cuts no feasible x but yields a
+  * weaker cut: it is said rather than left to be found out from the
+  * numbers. */
 
- std::map< const ColVariable * , ColVariable * > y_map;
- std::vector< const ColVariable * > y_src;
+ for( auto & issue : rep->get_mirror_issues() )
+  if( f_log )
+   *f_log << "BendersDecompositionSolver: the phase one of sub-Block "
+          << v_sub[ k ] << " is a relaxation, " << issue << std::endl;
 
- auto take_y = [ & ]( const ColVariable & var ) {
-  y_src.push_back( & var );
-  };
+ // the coupling Constraint of the subproblem, in the order cpl gives them
+ std::vector< FRowConstraint * > orig( cpl.size() , nullptr );
+ Index pos = 0 , nxt = 0;
 
- for( const auto & el : sub->get_static_variables() )
-  un_any_const_static( el , take_y , un_any_type< ColVariable >() );
-
- for( const auto & el : sub->get_dynamic_variables() )
-  un_any_const_dynamic( el , take_y , un_any_type< ColVariable >() );
-
- auto y = new std::vector< ColVariable >( y_src.size() );
- for( Index i = 0 ; i < y_src.size() ; ++i ) {
-  (*y)[ i ].set_type( y_src[ i ]->get_type() , eNoMod );
-  y_map[ y_src[ i ] ] = & (*y)[ i ];
-  }
-
- rep->add_static_variable( *y , "y" );
-
- /* One slack per coupling Constraint, two when it is bounded on both sides,
-  * since either of them can be the violated one. */
-
- auto sl = new std::vector< ColVariable >( 2 * cpl.size() );
- for( auto & s : *sl )
-  s.is_positive( true , eNoMod );
-
- rep->add_static_variable( *sl , "s" );
-
- /* The Constraint, in the very order they are scanned in, so that the
-  * positions the coupling ones are at are the same. A Constraint that is not
-  * a linear FRowConstraint, or that has a Variable the replica does not have,
-  * is left out: the phase one is then a relaxation of the subproblem, which
-  * only makes its cut weaker. */
-
- /* The Constraint are appended as they are met, and their address is handed
-  * to the BendersBFunction, hence the room is booked once and for all: the
-  * subproblem has at most as many of them as it has, coupling or not. */
-
- Index room = 0;
- for( const auto & el : sub->get_static_constraints() )
-  un_any_const_static( el , [ & room ]( const FRowConstraint & ) { ++room; } ,
-                       un_any_type< FRowConstraint >() );
- for( const auto & el : sub->get_dynamic_constraints() )
-  un_any_const_dynamic( el , [ & room ]( const FRowConstraint & ) { ++room; } ,
-                        un_any_type< FRowConstraint >() );
-
- auto cons = new std::vector< FRowConstraint >();
- cons->reserve( room );
- Index nxt = 0;      // the next coupling Constraint to be dealt with
- Index scanned = 0;
-
- BendersBFunction::ConstraintVector cns;
- BendersBFunction::MultiVector A1;
- BendersBFunction::RealVector b1;
- BendersBFunction::ConstraintSideVector sides1;
-
- auto scan = [ & ]( const FRowConstraint & con ) {
-  const Index pos = scanned++;
-  const bool coupling = ( nxt < cpl.size() ) && ( pos == cpl[ nxt ] );
-
-  /* Every Constraint of the subproblem is replicated, not just the coupling
-   * ones: without the others the least violation would be zero everywhere
-   * and the phase one would say nothing. */
-
-  auto lf = dynamic_cast< const LinearFunction * >( con.get_function() );
-  if( ! lf ) { if( coupling ) ++nxt; return; }
-
-  LinearFunction::v_coeff_pair cf;
-  bool complete = true;
-  for( auto & cp : lf->get_v_var() ) {
-   auto it = y_map.find( static_cast< const ColVariable * >( cp.first ) );
-   if( it == y_map.end() ) { complete = false; break; }
-   cf.emplace_back( it->second , cp.second );
-   }
-
-  if( ! complete ) { if( coupling ) ++nxt; return; }
-
-  bool lhs = ( con.get_lhs() > - Inf< double >() );
-  bool rhs = ( con.get_rhs() < Inf< double >() );
-
-  if( coupling ) {
-   lhs = ( sides[ nxt ] != int( BendersBFunction::eRHS ) );
-   rhs = ( sides[ nxt ] != int( BendersBFunction::eLHS ) );
-
-   // the slack helps the side it is given to: + on a >=, - on a <=
-   if( lhs )
-    cf.emplace_back( & (*sl)[ 2 * nxt ] , 1 );
-   if( rhs )
-    cf.emplace_back( & (*sl)[ 2 * nxt + 1 ] , -1 );
-   }
-
-  cons->emplace_back();
-  auto & nc = cons->back();
-  nc.set_function( new LinearFunction( std::move( cf ) ) , eNoMod );
-  nc.set_lhs( lhs ? con.get_lhs() : - Inf< double >() , eNoMod );
-  nc.set_rhs( rhs ? con.get_rhs() : Inf< double >() , eNoMod );
-
-  if( coupling ) {
-   cns.push_back( & nc );
-   A1.push_back( A[ nxt ] );
-   b1.push_back( b[ nxt ] );
-   sides1.push_back( BendersBFunction::ConstraintSide( sides[ nxt ] ) );
-   ++nxt;
-   }
+ auto scan = [ & ]( FRowConstraint & con ) {
+  if( ( nxt < cpl.size() ) && ( pos == cpl[ nxt ] ) )
+   orig[ nxt++ ] = & con;
+  ++pos;
   };
 
  for( const auto & el : sub->get_static_constraints() )
@@ -933,15 +853,57 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
  for( const auto & el : sub->get_dynamic_constraints() )
   un_any_const_dynamic( el , scan , un_any_type< FRowConstraint >() );
 
- rep->add_static_constraint( *cons , "coupling" );
+ // one slack per side, since either of them can be the violated one
+ auto sl = new std::vector< ColVariable >( 2 * cpl.size() );
+ for( auto & s : *sl )
+  s.is_positive( true , eNoMod );
+
+ rep->add_static_variable( *sl , "s" );
+
+ BendersBFunction::ConstraintVector cns;
+ BendersBFunction::MultiVector A1;
+ BendersBFunction::RealVector b1;
+ BendersBFunction::ConstraintSideVector sides1;
+
+ for( Index i = 0 ; i < cpl.size() ; ++i ) {
+  if( ! orig[ i ] )
+   continue;
+
+  auto cp = dynamic_cast< FRowConstraint * >( rep->mirror_of( orig[ i ] ) );
+  if( ! cp )
+   continue;
+
+  auto lf = dynamic_cast< LinearFunction * >( cp->get_function() );
+  if( ! lf )
+   continue;
+
+  const bool lhs = ( sides[ i ] != int( BendersBFunction::eRHS ) );
+  const bool rhs = ( sides[ i ] != int( BendersBFunction::eLHS ) );
+
+  // the slack helps the side it is given to: + on a >=, - on a <=
+  if( lhs )
+   lf->add_variable( & (*sl)[ 2 * i ] , 1 , eNoMod );
+  if( rhs )
+   lf->add_variable( & (*sl)[ 2 * i + 1 ] , -1 , eNoMod );
+
+  cp->set_lhs( lhs ? orig[ i ]->get_lhs() : - Inf< double >() , eNoMod );
+  cp->set_rhs( rhs ? orig[ i ]->get_rhs() : Inf< double >() , eNoMod );
+
+  cns.push_back( cp );
+  A1.push_back( A[ i ] );
+  b1.push_back( b[ i ] );
+  sides1.push_back( BendersBFunction::ConstraintSide( sides[ i ] ) );
+  }
 
  // the total violation, which is what the phase one minimizes
- auto lf = new LinearFunction();
+ auto olf = new LinearFunction();
  for( auto & s : *sl )
-  lf->add_variable( & s , 1 , eNoMod );
+  olf->add_variable( & s , 1 , eNoMod );
 
- auto obj = new FRealObjective( rep , lf );
+ auto obj = new FRealObjective( rep , olf );
  obj->set_sense( Objective::eMin , eNoMod );
+
+ delete rep->get_objective();   // the one the copy took from the subproblem
  rep->set_objective( obj , eNoMod );
 
  v_phase1[ k ] = rep;
