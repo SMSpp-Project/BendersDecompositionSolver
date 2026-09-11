@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.1.0] - 2026-09-12
+
+### Added
+
 - initial scaffold of the BendersDecompositionSolver module: CDASolver
   interface, parameter handling and the skeleton of the reformulation and of
   the master cut loop
@@ -22,4 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the groups, the fixings and the Constraint that are not linear rows, and
   says what it could not reproduce instead of dropping it in silence
 
-### Fixed
+- the version of the module is the git tag of its repository, or the
+  VERSION.txt of a release tarball, and the shared library carries it: its
+  SONAME is major.minor while the major is 0, and it is installed with an
+  RPATH relative to itself, so that an installed tree keeps working wherever
+  it is moved
+
+[Unreleased]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.1.0...develop
+[0.1.0]: https://gitlab.com/smspp/bendersdecompositionsolver/-/tags/0.1.0
