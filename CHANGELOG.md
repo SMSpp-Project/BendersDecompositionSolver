@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.1.1] - 2026-09-13
+
+### Fixed
+
+- the master needs the least numerical care of GUROBI, not none of it, and
+  the residual is declared
+
 ## [0.1.0] - 2026-09-12
 
 ### Added
