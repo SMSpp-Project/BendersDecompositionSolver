@@ -126,13 +126,22 @@ Algorithm: A Literature Review" *European Journal of Operational Research*
 These instructions will let you build `BendersDecompositionSolver`.
 
 
-The module also comes ready-made: `sudo apt install libsmspp-bds-dev` from the
-[PPA of the project](https://launchpad.net/~smspp-project/+archive/ubuntu/smspp), and
-`vcpkg install "smspp[core,bds]"` from the [SMS++ vcpkg
-registry](https://gitlab.com/smspp/vcpkg-registry); `conda install -c
-conda-forge smspp-project` and `brew install smspp`, from the [tap of the
-project](https://github.com/SMSpp-Project/homebrew-smspp), carry the whole
-framework. What follows is about building it yourself.
+The module also comes ready-made, in any of
+
+```sh
+sudo add-apt-repository ppa:smspp-project/smspp   # Ubuntu
+sudo apt install libsmspp-bds-dev
+
+conda install -c conda-forge smspp-project        # Linux, macOS, Windows
+
+brew tap SMSpp-Project/smspp                      # macOS, Linux
+brew install smspp
+
+vcpkg install "smspp[core,bds]"                   # from the sources
+```
+
+where apt and the port give the module alone, while conda and the tap carry
+the whole framework. What follows is about building it yourself.
 
 ### Requirements
 
