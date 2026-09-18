@@ -617,11 +617,11 @@ void BendersDecompositionSolver::reformulate( void )
 
  auto take = [ & all ]( ColVariable & var ) { all.push_back( & var ); };
 
- for( const auto & el : f_Block->get_static_variables() )
-  un_any_const_static( el , take , un_any_type< ColVariable >() );
-
- for( const auto & el : f_Block->get_dynamic_variables() )
-  un_any_const_dynamic( el , take , un_any_type< ColVariable >() );
+ for( auto groups : { & f_Block->get_static_variable_groups() ,
+		     & f_Block->get_dynamic_variable_groups() } )
+  for( const auto & group : *groups )
+   if( group )
+    group->for_each_as< ColVariable >( take );
 
  /* Which of them are complicating is a choice, not a property of the Block
   * [see vintMasterVars]: saying nothing means all of them, which is the
@@ -778,11 +778,11 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
   lf->remove_variables( std::move( nms ) , true );
   };
 
- for( const auto & el : sub->get_static_constraints() )
-  un_any_const_static( el , scan , un_any_type< FRowConstraint >() );
-
- for( const auto & el : sub->get_dynamic_constraints() )
-  un_any_const_dynamic( el , scan , un_any_type< FRowConstraint >() );
+ for( auto groups : { & sub->get_static_constraint_groups() ,
+		     & sub->get_dynamic_constraint_groups() } )
+  for( const auto & group : *groups )
+   if( group )
+    group->for_each_as< FRowConstraint >( scan );
 
  if( cns.empty() )
   throw( std::logic_error( _prfx + "sub-Block " +
@@ -847,11 +847,11 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
   ++pos;
   };
 
- for( const auto & el : sub->get_static_constraints() )
-  un_any_const_static( el , scan , un_any_type< FRowConstraint >() );
-
- for( const auto & el : sub->get_dynamic_constraints() )
-  un_any_const_dynamic( el , scan , un_any_type< FRowConstraint >() );
+ for( auto groups : { & sub->get_static_constraint_groups() ,
+		     & sub->get_dynamic_constraint_groups() } )
+  for( const auto & group : *groups )
+   if( group )
+    group->for_each_as< FRowConstraint >( scan );
 
  // one slack per side, since either of them can be the violated one
  auto sl = new std::vector< ColVariable >( 2 * cpl.size() );
