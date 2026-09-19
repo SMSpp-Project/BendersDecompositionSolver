@@ -193,9 +193,12 @@ void BendersDecompositionSolver::dismantle( void )
 
 int BendersDecompositionSolver::compute( bool changedvars )
 {
- /* The reformulation is done here, rather than in set_Block(), because it
-  * depends on the parameters, and those are set through a ComputeConfig
-  * after the Solver has been registered to the Block. */
+ /* The reformulation is done by set_Block(), with the parameters the Solver
+  * has at that moment: a BlockSolverConfig sets them through its
+  * ComputeConfig before it registers the Solver, while a parameter that
+  * shapes the reformulation and is changed afterwards does not redo it.
+  * Asking for it here does nothing when it is done, and complains when
+  * there is no Block. */
 
  reformulate();
 

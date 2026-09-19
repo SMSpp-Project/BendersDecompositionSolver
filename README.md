@@ -54,8 +54,8 @@ infeasible subproblem whose complicating `Variable` are binary can be cut away
 by a combinatorial, or no-good, cut, which forbids the assignment at hand and
 asks nothing at all of the subproblem `Solver`; and it can be cut away by the
 cut of a *phase one*, i.e., of the problem that minimizes the violation of the
-coupling `Constraint` on a replica of the subproblem that gives each of them a
-slack of unit cost. Which cut a given infeasibility yields is decided by the
+coupling `Constraint` on the abstract copy the subproblem makes of itself,
+which gives each of them a slack of unit cost. Which cut a given infeasibility yields is decided by the
 normalization the multipliers are subject to, and there the unit costs are
 that normalization: the cut is then the one a bounded separation problem
 selects rather than whichever ray the `Solver` happened to return.

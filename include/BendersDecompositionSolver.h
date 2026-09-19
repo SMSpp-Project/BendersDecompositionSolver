@@ -472,7 +472,8 @@ class BendersDecompositionSolver : public CDASolver
  /// public enum of the int parameters specific to BendersDecompositionSolver
  enum int_par_type_BDSlv {
   int_BDSlv_iBCopy = intLastParCDAS ,
-  ///< copy (R3_Block) vs evict the sub-Block into the BendersBFunction
+  ///< copy (R3_Block) vs evict the sub-Block into the BendersBFunction;
+  ///< reserved: the sub-Block is always evicted, whatever the value
 
   int_BDSlv_Regime ,
   ///< master regime, a master_regime_type value
@@ -627,17 +628,20 @@ class BendersDecompositionSolver : public CDASolver
 
 /*--------------------------------------------------------------------------*/
  /// build the phase-one value function of subproblem \p k
- /** Replicates subproblem \p k into an AbstractBlock of this Solver's own,
-  *  gives each of its coupling Constraint, the ones at the positions \p cpl
-  *  in the order the Constraint of the subproblem are scanned, a slack of
-  *  unit cost, and makes the sum of those slacks the Objective: the value of
-  *  the problem is then the least total violation of the coupling, which is
-  *  zero exactly where the subproblem has a solution. The affine mapping is
-  *  the one of the subproblem, \p A and \p b, on the same \p sides.
+ /** Takes the abstract copy of subproblem \p k [see AbstractBlock::mirror()],
+  *  gives each of its coupling Constraint, the copies of the ones at the
+  *  positions \p cpl in the order the Constraint of the subproblem are
+  *  scanned, a slack of unit cost per side, and makes the sum of those slacks
+  *  the Objective: the value of the problem is then the least total violation
+  *  of the coupling, which is zero exactly where the subproblem has a
+  *  solution. The affine mapping is the one of the subproblem, \p A and \p b,
+  *  on the same \p sides.
   *
-  *  Only ColVariable and linear FRowConstraint are replicated: anything else
-  *  is left out, which turns the replica into a relaxation and the cut into a
-  *  weaker, but still valid, one [see feasibility_cut_type]. */
+  *  What the copy could not reproduce [see AbstractBlock::get_mirror_issues()]
+  *  is left out, and written to the log if there is one: it turns the copy
+  *  into a relaxation and the cut into a weaker, but still valid, one [see
+  *  feasibility_cut_type]. The copy is taken once, when the reformulation is
+  *  done, and it is not kept in synch with the subproblem afterwards. */
 
  void build_phase_one( Index k , const Subset & cpl ,
                        const std::vector< std::vector< double > > & A ,
