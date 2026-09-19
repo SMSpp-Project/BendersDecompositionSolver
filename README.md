@@ -55,10 +55,13 @@ by a combinatorial, or no-good, cut, which forbids the assignment at hand and
 asks nothing at all of the subproblem `Solver`; and it can be cut away by the
 cut of a *phase one*, i.e., of the problem that minimizes the violation of the
 coupling `Constraint` on the abstract copy the subproblem makes of itself,
-which gives each of them a slack of unit cost. Which cut a given infeasibility yields is decided by the
-normalization the multipliers are subject to, and there the unit costs are
-that normalization: the cut is then the one a bounded separation problem
-selects rather than whichever ray the `Solver` happened to return.
+which gives each of them a slack with a cost. Which cut a given infeasibility
+yields is decided by the normalization the multipliers are subject to, and
+there the costs of the slacks are that normalization: the cut is then the one
+a bounded separation problem selects rather than whichever ray the `Solver`
+happened to return. The costs are either all one or, for each row, the
+inverse of its norm, which makes the cut independent of how the rows are
+scaled.
 
 The master and the subproblem `Solver` are instantiated through the `Solver`
 factory and configured via `Configuration`, so that how the master and the

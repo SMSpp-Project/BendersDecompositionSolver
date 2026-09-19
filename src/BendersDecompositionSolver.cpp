@@ -61,7 +61,8 @@ static const std::vector< std::string > int_pars_BDSlv = {
  "int_BDSlv_FeasCut" ,
  "int_BDSlv_MaxRounds" ,
  "int_BDSlv_Pareto" ,
- "int_BDSlv_CutNorm"
+ "int_BDSlv_CutNorm" ,
+ "int_BDSlv_PhaseOneWeights"
  };
 
 static const std::vector< std::string > dbl_pars_BDSlv = {
@@ -371,6 +372,7 @@ int BendersDecompositionSolver::get_dflt_int_par( idx_type par ) const
   case( int_BDSlv_MaxRounds ): return( Inf< int >() );
   case( int_BDSlv_Pareto ):    return( eNoPareto );
   case( int_BDSlv_CutNorm ):   return( eNoNorm );
+  case( int_BDSlv_PhaseOneWeights ): return( eUnitWeights );
   default:                     return( CDASolver::get_dflt_int_par( par ) );
   }
  }
@@ -505,6 +507,7 @@ void BendersDecompositionSolver::set_par( idx_type par , int value )
   case( int_BDSlv_MaxRounds ): f_max_rounds = value; return;
   case( int_BDSlv_Pareto ):    f_pareto = value;     return;
   case( int_BDSlv_CutNorm ):   f_cut_norm = value;   return;
+  case( int_BDSlv_PhaseOneWeights ): f_p1_weights = value; return;
   default:                     CDASolver::set_par( par , value );
   }
  }
@@ -556,6 +559,7 @@ int BendersDecompositionSolver::get_int_par( idx_type par ) const
   case( int_BDSlv_MaxRounds ): return( f_max_rounds );
   case( int_BDSlv_Pareto ):    return( f_pareto );
   case( int_BDSlv_CutNorm ):   return( f_cut_norm );
+  case( int_BDSlv_PhaseOneWeights ): return( f_p1_weights );
   default:                     return( CDASolver::get_int_par( par ) );
   }
  }
@@ -859,6 +863,9 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
  BendersBFunction::RealVector b1;
  BendersBFunction::ConstraintSideVector sides1;
 
+ // the costs of the slacks, one per side as the slacks themselves
+ std::vector< double > w( sl->size() , 1 );
+
  for( Index i = 0 ; i < cpl.size() ; ++i ) {
   if( ! orig[ i ] )
    continue;
@@ -870,6 +877,17 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
   auto lf = dynamic_cast< LinearFunction * >( cp->get_function() );
   if( ! lf )
    continue;
+
+  // the cost of the slacks of this row [see phase_one_weight_type]
+  if( f_p1_weights == eRowNormWeights ) {
+   double n2 = 0;
+   for( Index j = 0 ; j < lf->get_num_active_var() ; ++j )
+    n2 += lf->get_coefficient( j ) * lf->get_coefficient( j );
+   for( auto a : A[ i ] )
+    n2 += a * a;
+   if( n2 > 0 )
+    w[ 2 * i ] = w[ 2 * i + 1 ] = 1 / std::sqrt( n2 );
+   }
 
   const bool lhs = ( sides[ i ] != int( BendersBFunction::eRHS ) );
   const bool rhs = ( sides[ i ] != int( BendersBFunction::eLHS ) );
@@ -889,10 +907,10 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
   sides1.push_back( BendersBFunction::ConstraintSide( sides[ i ] ) );
   }
 
- // the total violation, which is what the phase one minimizes
+ // the total weighted violation, which is what the phase one minimizes
  auto olf = new LinearFunction();
- for( auto & s : *sl )
-  olf->add_variable( & s , 1 , eNoMod );
+ for( Index j = 0 ; j < sl->size() ; ++j )
+  olf->add_variable( & (*sl)[ j ] , w[ j ] , eNoMod );
 
  auto obj = new FRealObjective( rep , olf );
  obj->set_sense( Objective::eMin , eNoMod );

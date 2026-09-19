@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `int_BDSlv_PhaseOneWeights`, the cost of the slacks of the phase one, which
+  is the normalization that selects its cut: every slack costing one, as
+  before and by default, or the slacks of each coupling row costing the
+  inverse of the 2-norm of its coefficients, which makes the cut independent
+  of how the rows are scaled
+
 ### Changed
 
 ### Fixed

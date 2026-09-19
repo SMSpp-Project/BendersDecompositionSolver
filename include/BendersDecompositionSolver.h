@@ -308,12 +308,13 @@ class BendersDecompositionSolver : public CDASolver
   *
   * - the cut of a *phase one*, i.e., of the problem that minimizes the total
   *   violation of the coupling Constraint by giving each of them a slack of
-  *   unit cost. That problem is feasible whatever x, its value is zero
-  *   exactly where the subproblem has a solution, and it is a value function
-  *   like any other: its linearization at the incumbent, asked to be
+  *   unit cost, or of the cost int_BDSlv_PhaseOneWeights says [see
+  *   phase_one_weight_type]. That problem is feasible whatever x, its value
+  *   is zero exactly where the subproblem has a solution, and it is a value
+  *   function like any other: its linearization at the incumbent, asked to be
   *   nonpositive, is a feasibility cut. Which cut a given infeasibility
   *   yields is decided by the normalization the certificate is subject to,
-  *   and here the multipliers are bounded by the unit costs, which is the
+  *   and here the multipliers are bounded by the costs, which is the
   *   normalization Fischetti, Salvagnin and Zanette recommend: the cut is
   *   therefore not an arbitrary ray but the one a bounded separation problem
   *   selects. The subproblem is *replicated*, so nothing of the user's is
@@ -376,6 +377,24 @@ class BendersDecompositionSolver : public CDASolver
   eOneNorm = 1 ,  ///< divided by the 1-norm of its coefficients
   eTwoNorm = 2 ,  ///< divided by the 2-norm of its coefficients
   eInfNorm = 3    ///< divided by the largest of its coefficients
+  };
+
+ /// the cost of the slacks of the phase one, i.e., its normalization
+ /** The multipliers of the phase one are bounded by the costs of its slacks,
+  * so those costs are the normalization that selects its cut. With unit
+  * costs the selection depends on how the coupling rows are written:
+  * multiplying a row by k > 0 multiplies its slack by k, and the same
+  * problem needs the cost of that slack divided by k, which unit costs do
+  * not do. Weighting the slacks of each row by the inverse of the 2-norm of
+  * its coefficients, those of the complicating Variable included, does it,
+  * and makes the cut of the phase one independent of how the rows are
+  * scaled: it is the same as scaling every coupling row to unit norm and
+  * then giving its slacks unit costs. A row with no coefficients keeps its
+  * unit cost. */
+
+ enum phase_one_weight_type {
+  eUnitWeights    = 0 ,  ///< every slack costs one
+  eRowNormWeights = 1    ///< the slacks of a row cost 1 / the norm of it
   };
 
 /** @} ---------------------------------------------------------------------*/
@@ -492,6 +511,9 @@ class BendersDecompositionSolver : public CDASolver
 
   int_BDSlv_CutNorm ,
   ///< scaling of the feasibility cuts, a feasibility_cut_norm_type value
+
+  int_BDSlv_PhaseOneWeights ,
+  ///< costs of the slacks of the phase one, a phase_one_weight_type value
 
   intLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
@@ -631,10 +653,11 @@ class BendersDecompositionSolver : public CDASolver
  /** Takes the abstract copy of subproblem \p k [see AbstractBlock::mirror()],
   *  gives each of its coupling Constraint, the copies of the ones at the
   *  positions \p cpl in the order the Constraint of the subproblem are
-  *  scanned, a slack of unit cost per side, and makes the sum of those slacks
-  *  the Objective: the value of the problem is then the least total violation
-  *  of the coupling, which is zero exactly where the subproblem has a
-  *  solution. The affine mapping is the one of the subproblem, \p A and \p b,
+  *  scanned, a slack per side, and makes the sum of those slacks, each at
+  *  the cost int_BDSlv_PhaseOneWeights says [see phase_one_weight_type],
+  *  the Objective: the value of the problem is then the least weighted
+  *  violation of the coupling, which is zero exactly where the subproblem
+  *  has a solution. The affine mapping is the one of the subproblem, \p A and \p b,
   *  on the same \p sides.
   *
   *  What the copy could not reproduce [see AbstractBlock::get_mirror_issues()]
@@ -789,6 +812,8 @@ class BendersDecompositionSolver : public CDASolver
  double f_core_move = 0.5;  ///< dbl_BDSlv_CoreMove
 
  int f_cut_norm = eNoNorm;  ///< int_BDSlv_CutNorm
+
+ int f_p1_weights = eUnitWeights;  ///< int_BDSlv_PhaseOneWeights
 
  std::string f_MSName;   ///< str_BDSlv_MSName
 

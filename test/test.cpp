@@ -65,6 +65,9 @@ static const double cost[ M ][ N ] = { { 2 , 3 , 4 , 5 } ,
 // while being large enough that the slack is never used at the optimum
 static const double BigM = 1e2;
 
+// the capacity row i, a coupling one, is written multiplied by cap_scale^i
+static double cap_scale = 1;
+
 using array_type = boost::multi_array< ColVariable , 2 >;
 
 /*--------------------------------------------------------------------------*/
@@ -110,9 +113,10 @@ static void add_transport( AbstractBlock * block ,
  auto cap = new std::vector< FRowConstraint >( M );
  for( int i = 0 ; i < M ; ++i ) {
   auto f = new LinearFunction();
+  const double k = std::pow( cap_scale , i );
   for( int j = 0 ; j < N ; ++j )
-   f->add_variable( & ( * x )[ i ][ j ] , demand[ j ] );
-  f->add_variable( & ( * y )[ i ] , - capacity[ i ] );
+   f->add_variable( & ( * x )[ i ][ j ] , k * demand[ j ] );
+  f->add_variable( & ( * y )[ i ] , - k * capacity[ i ] );
   ( * cap )[ i ].set_function( f );
   ( * cap )[ i ].set_lhs( - Inf< double >() );
   ( * cap )[ i ].set_rhs( 0 );
@@ -442,6 +446,38 @@ int main( void )
             << " rounds , " << ct_14 << " cuts )" << std::endl;
   delete root_f4;
   delete root_14;
+
+  /* The phase one again, the slacks of each row costing the inverse of its
+   * norm, and then once more with the coupling rows written 1, 100 and
+   * 10000 times larger: the problem is the same, and with these costs so is
+   * the phase one, hence the same optimum, and the same cuts. On this small
+   * instance the unit costs give the same cuts under that scaling too, so
+   * what is checked here is that the weighted phase one works whatever the
+   * scaling, not that it picks another cut than the unit costs. */
+
+  int st_w1 , st_w2;
+  long it_w1 = 0 , it_w2 = 0 , ct_w1 = 0 , ct_w2 = 0;
+  auto root_w1 = build_structured( false , 4 );
+  const double v_w1 = solve_from_config( root_w1 ,
+					 "BSPar_benders_milp_phase1_norm.txt" ,
+					 st_w1 , & it_w1 , & ct_w1 );
+  cap_scale = 100;
+  auto root_w2 = build_structured( false , 4 );
+  const double v_w2 = solve_from_config( root_w2 ,
+					 "BSPar_benders_milp_phase1_norm.txt" ,
+					 st_w2 , & it_w2 , & ct_w2 );
+  cap_scale = 1;
+  const bool ok_w = ( rel( ref4 , v_w1 ) <= tol ) &&
+                    ( rel( ref4 , v_w2 ) <= tol ) &&
+                    ( it_w1 == it_w2 ) && ( ct_w1 == ct_w2 );
+  ok_ns = ok_ns && ok_w;
+  std::cout << "4-scenario, phase one weighted by the row norms = " << v_w1
+            << " ( " << it_w1 << " rounds , " << ct_w1 << " cuts )"
+            << "   rows scaled = " << v_w2 << " ( " << it_w2 << " rounds , "
+            << ct_w2 << " cuts )" << ( ok_w ? "   -> OK" : "   -> FAIL" )
+            << std::endl;
+  delete root_w1;
+  delete root_w2;
   delete mono4;
   }
  catch( const std::exception & e ) {
