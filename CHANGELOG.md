@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- the phase one never gave its cut: its slacks were added to the coupling
+  rows without issuing the Modification, and a Constraint registers itself
+  with a Variable coming in only when it receives it, so that a Solver
+  building its model by columns, as the :MILPSolver do, left the slacks out
+  of the rows. The phase one was then infeasible at every x, and every
+  infeasible subproblem was silently cut away by the Farkas certificate
+  instead. The test now checks the phase one on an instance whose infeasible
+  subproblems have more than one extreme ray, where its cut differs from the
+  certificate
+
 ## [0.1.1] - 2026-09-13
 
 ### Fixed

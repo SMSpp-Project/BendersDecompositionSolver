@@ -892,11 +892,16 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
   const bool lhs = ( sides[ i ] != int( BendersBFunction::eRHS ) );
   const bool rhs = ( sides[ i ] != int( BendersBFunction::eLHS ) );
 
-  // the slack helps the side it is given to: + on a >=, - on a <=
+  /* The slack helps the side it is given to: + on a >=, - on a <=. It is
+   * added issuing the Modification, although no Solver is there yet to get
+   * it: the Constraint registers itself with a Variable coming in only when
+   * it receives it, and a Solver building its model by columns reads a
+   * Variable's rows from that registration, so a slack added without it
+   * would sit in the row and be left out of the model. */
   if( lhs )
-   lf->add_variable( & (*sl)[ 2 * i ] , 1 , eNoMod );
+   lf->add_variable( & (*sl)[ 2 * i ] , 1 );
   if( rhs )
-   lf->add_variable( & (*sl)[ 2 * i + 1 ] , -1 , eNoMod );
+   lf->add_variable( & (*sl)[ 2 * i + 1 ] , -1 );
 
   cp->set_lhs( lhs ? orig[ i ]->get_lhs() : - Inf< double >() , eNoMod );
   cp->set_rhs( rhs ? orig[ i ]->get_rhs() : Inf< double >() , eNoMod );

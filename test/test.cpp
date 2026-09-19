@@ -32,6 +32,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <random>
 
 #include <boost/multi_array.hpp>
 
@@ -64,9 +65,6 @@ static const double cost[ M ][ N ] = { { 2 , 3 , 4 , 5 } ,
 // subproblem always feasible (so only Benders optimality cuts are needed),
 // while being large enough that the slack is never used at the optimum
 static const double BigM = 1e2;
-
-// the capacity row i, a coupling one, is written multiplied by cap_scale^i
-static double cap_scale = 1;
 
 using array_type = boost::multi_array< ColVariable , 2 >;
 
@@ -113,10 +111,9 @@ static void add_transport( AbstractBlock * block ,
  auto cap = new std::vector< FRowConstraint >( M );
  for( int i = 0 ; i < M ; ++i ) {
   auto f = new LinearFunction();
-  const double k = std::pow( cap_scale , i );
   for( int j = 0 ; j < N ; ++j )
-   f->add_variable( & ( * x )[ i ][ j ] , k * demand[ j ] );
-  f->add_variable( & ( * y )[ i ] , - k * capacity[ i ] );
+   f->add_variable( & ( * x )[ i ][ j ] , demand[ j ] );
+  f->add_variable( & ( * y )[ i ] , - capacity[ i ] );
   ( * cap )[ i ].set_function( f );
   ( * cap )[ i ].set_lhs( - Inf< double >() );
   ( * cap )[ i ].set_rhs( 0 );
@@ -201,6 +198,106 @@ static AbstractBlock * build_structured( bool with_slack = true , int nsub = 1 ,
   auto sub = new AbstractBlock( root );
   auto sf = new LinearFunction();
   add_transport( sub , y , s , with_slack , sf );
+  auto sobj = new FRealObjective( sub , sf );
+  sobj->set_sense( Objective::eMin );
+  sub->set_objective( sobj );
+  root->add_nested_Block( sub );
+  }
+
+ return( root );
+ }
+
+/*--------------------------------------------------------------------------*/
+
+// a sparse instance: each customer can be served by two locations only, so
+// that an infeasible subproblem has more than one way of being so, i.e., its
+// dual has more than one extreme ray, and the capacity row i, a coupling
+// one, is written multiplied by row_scale[ i ] when scaled is true
+
+static AbstractBlock * build_sparse( unsigned seed , bool scaled ,
+				     int nsub = 4 )
+{
+ const int m = 6 , n = 12;
+ std::mt19937 g( seed );
+ std::uniform_real_distribution< double > u( 0 , 1 );
+
+ std::vector< double > fc( m ) , cp( m ) , scale( m , 1 );
+ std::vector< std::vector< double > > cs( m , std::vector< double >( n ) );
+ std::vector< std::vector< int > > arc( m , std::vector< int >( n , 0 ) );
+ for( int i = 0 ; i < m ; ++i ) {
+  fc[ i ] = 5 + 10 * u( g );
+  cp[ i ] = 3 + 4 * u( g );
+  }
+ for( int j = 0 ; j < n ; ++j ) {
+  const int a = g() % m;
+  int b = g() % m;
+  if( b == a )
+   b = ( a + 1 ) % m;
+  arc[ a ][ j ] = arc[ b ][ j ] = 1;
+  for( int i = 0 ; i < m ; ++i )
+   cs[ i ][ j ] = 1 + 5 * u( g );
+  }
+ std::vector< std::vector< double > > dm( nsub , std::vector< double >( n ) );
+ for( auto & d : dm )
+  for( auto & dj : d )
+   dj = 1 + 2 * u( g );
+ if( scaled ) {
+  std::uniform_real_distribution< double > e( -2 , 2 );
+  for( auto & k : scale )
+   k = std::pow( 10 , e( g ) );
+  }
+
+ auto root = new AbstractBlock();
+ auto y = new std::vector< ColVariable >( m );
+ for( auto & yi : * y ) {
+  yi.is_unitary( true );
+  yi.is_positive( true );
+  }
+ root->add_static_variable( * y , "y" );
+ auto df = new LinearFunction();
+ for( int i = 0 ; i < m ; ++i )
+  df->add_variable( & ( * y )[ i ] , fc[ i ] );
+ auto robj = new FRealObjective( root , df );
+ robj->set_sense( Objective::eMin );
+ root->set_objective( robj );
+
+ for( int s = 0 ; s < nsub ; ++s ) {
+  auto sub = new AbstractBlock( root );
+  boost::array< array_type::index , 2 > shape = { m , n };
+  auto x = new array_type( shape );
+  for( auto q = x->data() ; q < x->data() + x->num_elements() ; ++q )
+   q->is_positive( true );
+  sub->add_static_variable( * x , "x" );
+
+  auto dem = new std::vector< FRowConstraint >( n );
+  for( int j = 0 ; j < n ; ++j ) {
+   auto f = new LinearFunction();
+   for( int i = 0 ; i < m ; ++i )
+    if( arc[ i ][ j ] )
+     f->add_variable( & ( * x )[ i ][ j ] , 1 );
+   ( * dem )[ j ].set_function( f );
+   ( * dem )[ j ].set_both( dm[ s ][ j ] );
+   }
+  sub->add_static_constraint( * dem , "demand" );
+
+  auto cap = new std::vector< FRowConstraint >( m );
+  for( int i = 0 ; i < m ; ++i ) {
+   auto f = new LinearFunction();
+   for( int j = 0 ; j < n ; ++j )
+    if( arc[ i ][ j ] )
+     f->add_variable( & ( * x )[ i ][ j ] , scale[ i ] );
+   f->add_variable( & ( * y )[ i ] , - scale[ i ] * cp[ i ] );
+   ( * cap )[ i ].set_function( f );
+   ( * cap )[ i ].set_lhs( - Inf< double >() );
+   ( * cap )[ i ].set_rhs( 0 );
+   }
+  sub->add_static_constraint( * cap , "capacity" );
+
+  auto sf = new LinearFunction();
+  for( int i = 0 ; i < m ; ++i )
+   for( int j = 0 ; j < n ; ++j )
+    if( arc[ i ][ j ] )
+     sf->add_variable( & ( * x )[ i ][ j ] , cs[ i ][ j ] );
   auto sobj = new FRealObjective( sub , sf );
   sobj->set_sense( Objective::eMin );
   sub->set_objective( sobj );
@@ -447,37 +544,42 @@ int main( void )
   delete root_f4;
   delete root_14;
 
-  /* The phase one again, the slacks of each row costing the inverse of its
-   * norm, and then once more with the coupling rows written 1, 100 and
-   * 10000 times larger: the problem is the same, and with these costs so is
-   * the phase one, hence the same optimum, and the same cuts. On this small
-   * instance the unit costs give the same cuts under that scaling too, so
-   * what is checked here is that the weighted phase one works whatever the
-   * scaling, not that it picks another cut than the unit costs. */
+  /* The phase one on the sparse instance, whose infeasible subproblems have
+   * more than one extreme ray, hence where the normalization decides which
+   * cut is taken: with the slacks costing one, writing the coupling rows
+   * with factors between 1/100 and 100 changes the cuts, while with the
+   * slacks of each row costing the inverse of its norm it does not, the
+   * problem being the same. What is asserted is the optimum everywhere and
+   * the invariance of the weighted run; the unit costs are printed only. */
 
-  int st_w1 , st_w2;
-  long it_w1 = 0 , it_w2 = 0 , ct_w1 = 0 , ct_w2 = 0;
-  auto root_w1 = build_structured( false , 4 );
-  const double v_w1 = solve_from_config( root_w1 ,
-					 "BSPar_benders_milp_phase1_norm.txt" ,
-					 st_w1 , & it_w1 , & ct_w1 );
-  cap_scale = 100;
-  auto root_w2 = build_structured( false , 4 );
-  const double v_w2 = solve_from_config( root_w2 ,
-					 "BSPar_benders_milp_phase1_norm.txt" ,
-					 st_w2 , & it_w2 , & ct_w2 );
-  cap_scale = 1;
-  const bool ok_w = ( rel( ref4 , v_w1 ) <= tol ) &&
-                    ( rel( ref4 , v_w2 ) <= tol ) &&
-                    ( it_w1 == it_w2 ) && ( ct_w1 == ct_w2 );
+  auto mono_sp = build_sparse( 4 , false );
+  int st_sp;
+  const double ref_sp = solve_from_config( mono_sp , "BSPar_sub.txt" , st_sp );
+  delete mono_sp;
+
+  struct { const char * cfg; bool scaled; double v; long it , ct; } sp[] = {
+   { "BSPar_benders_milp_phase1.txt" , false , 0 , 0 , 0 } ,
+   { "BSPar_benders_milp_phase1.txt" , true , 0 , 0 , 0 } ,
+   { "BSPar_benders_milp_phase1_norm.txt" , false , 0 , 0 , 0 } ,
+   { "BSPar_benders_milp_phase1_norm.txt" , true , 0 , 0 , 0 } };
+  for( auto & r : sp ) {
+   auto root = build_sparse( 4 , r.scaled );
+   int st;
+   r.v = solve_from_config( root , r.cfg , st , & r.it , & r.ct );
+   delete root;
+   }
+  const bool ok_w = ( rel( ref_sp , sp[ 0 ].v ) <= tol ) &&
+                    ( rel( ref_sp , sp[ 1 ].v ) <= tol ) &&
+                    ( rel( ref_sp , sp[ 2 ].v ) <= tol ) &&
+                    ( rel( ref_sp , sp[ 3 ].v ) <= tol ) &&
+                    ( sp[ 2 ].it == sp[ 3 ].it ) &&
+                    ( sp[ 2 ].ct == sp[ 3 ].ct );
   ok_ns = ok_ns && ok_w;
-  std::cout << "4-scenario, phase one weighted by the row norms = " << v_w1
-            << " ( " << it_w1 << " rounds , " << ct_w1 << " cuts )"
-            << "   rows scaled = " << v_w2 << " ( " << it_w2 << " rounds , "
-            << ct_w2 << " cuts )" << ( ok_w ? "   -> OK" : "   -> FAIL" )
-            << std::endl;
-  delete root_w1;
-  delete root_w2;
+  std::cout << "sparse, phase one: ref = " << ref_sp << "   unit costs = "
+            << sp[ 0 ].it << " rounds , rows scaled = " << sp[ 1 ].it
+            << " rounds   row-norm costs = " << sp[ 2 ].it
+            << " rounds , rows scaled = " << sp[ 3 ].it << " rounds"
+            << ( ok_w ? "   -> OK" : "   -> FAIL" ) << std::endl;
   delete mono4;
   }
  catch( const std::exception & e ) {
