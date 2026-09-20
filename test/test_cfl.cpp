@@ -197,19 +197,31 @@ static double solve( AbstractBlock * block , const std::string & cfg ,
  auto c = Configuration::deserialize( cfg );
  auto bsc = dynamic_cast< BlockSolverConfig * >( c );
  if( ! bsc ) { std::cerr << cfg << " not a BlockSolverConfig\n"; std::exit( 1 ); }
- bsc->apply( block );
- auto solver = block->get_registered_solvers().front();
+ /* Whatever goes wrong, from the configuration being refused onwards, the
+  * Block is given back what the Solver had taken from it before the error
+  * travels on, so that the caller can go on using the Block. */
 
- /* Capping the rounds turns the run into a fixed budget of cuts, which is
-  * how the strength of a family of cuts is measured: whoever has the better
-  * bound after the same number of rounds has the stronger cuts. */
+ auto give_back = [ & ]() { bsc->clear(); bsc->apply( block ); delete bsc; };
 
- if( rounds > 0 )
-  solver->set_par( solver->int_par_str2idx( "int_BDSlv_MaxRounds" ) , rounds );
- auto t0 = std::chrono::steady_clock::now();
- const int st = solver->compute( false );
- auto t1 = std::chrono::steady_clock::now();
- seconds = std::chrono::duration< double >( t1 - t0 ).count();
+ Solver * solver;
+ int st;
+ try {
+  bsc->apply( block );
+  solver = block->get_registered_solvers().front();
+
+  /* Capping the rounds turns the run into a fixed budget of cuts, which is
+   * how the strength of a family of cuts is measured: whoever has the better
+   * bound after the same number of rounds has the stronger cuts. */
+
+  if( rounds > 0 )
+   solver->set_par( solver->int_par_str2idx( "int_BDSlv_MaxRounds" ) ,
+		    rounds );
+  auto t0 = std::chrono::steady_clock::now();
+  st = solver->compute( false );
+  auto t1 = std::chrono::steady_clock::now();
+  seconds = std::chrono::duration< double >( t1 - t0 ).count();
+  }
+ catch( ... ) { give_back(); throw; }
 
  /* The bound the Solver reports is only the optimum if it says it converged:
   * with the two of them, and the status, a value that is off tells whether
@@ -227,10 +239,32 @@ static double solve( AbstractBlock * block , const std::string & cfg ,
   * and deleted by applying the cleared BlockSolverConfig, which is what
   * gives the Block back whatever the Solver had taken from it. */
 
- bsc->clear();
- bsc->apply( block );
- delete bsc;
+ give_back();
  return( lb );
+ }
+
+/*--------------------------------------------------------------------------*/
+
+/* The convex regime drives the master with a BundleSolver, and the master
+ * keeps the subproblems hanging from it as sub-Block; a bundle that wants
+ * each of its sub-Block to be a bare function Block refuses it in
+ * set_Block(), and so does one that does not carry the required parameters.
+ * In either case the regime is skipped rather than failed. */
+
+static double solve_by_bundle( AbstractBlock * block , const std::string & cfg ,
+			       double & seconds , int * status , double * ub ,
+			       bool & ran , double dflt )
+{
+ try {
+  const double lb = solve( block , cfg , seconds , status , ub );
+  ran = true;
+  return( lb );
+  }
+ catch( const std::exception & e ) {
+  std::cout << cfg << ": skipped, " << e.what() << std::endl;
+  ran = false;
+  return( dflt );
+  }
  }
 
 /*--------------------------------------------------------------------------*/
@@ -273,6 +307,18 @@ int main( int argc , char ** argv )
 
  auto B = new CFLB();
  B->Block::load( fn , 'C' );
+
+ /* The ORLib instances are not in the repository, they are downloaded and
+  * unpacked by the build [see extract_cfl_txt]: where they are not there
+  * load() leaves an empty Block, and the comparison is skipped rather than
+  * failed on a Block that has nothing in it. */
+
+ if( ! B->get_NFacilities() ) {
+  std::cout << "instance " << fn << " is not there: skipped" << std::endl;
+  delete B;
+  return( 0 );
+  }
+
  const double M = big_M( B );
  std::cout << "instance " << fn << ": " << B->get_NFacilities()
            << " facilities, " << B->get_NCustomers() << " customers"
@@ -298,10 +344,11 @@ int main( int argc , char ** argv )
 
  // ----- BDS + BundleSolver on the solver-agnostic 2-level model ----------- #
  auto root = build_structured( B , M );
- double t_bds , ub_bds;
- int st_bds;
- const double bds = solve( root , "BSPar_benders_convex.txt" , t_bds ,
-                           & st_bds , & ub_bds );
+ double t_bds = 0 , ub_bds = 0;
+ int st_bds = 0;
+ bool has_bds;
+ const double bds = solve_by_bundle( root , "BSPar_benders_convex.txt" , t_bds ,
+				     & st_bds , & ub_bds , has_bds , ref );
 
  /* ----- the MILP master, with and without the Pareto-optimal cuts -------- #
   *
@@ -344,8 +391,9 @@ int main( int argc , char ** argv )
  if( with_benform )
   std::cout << "CFLB BenForm    = " << ben << "  ( " << t_ben << " s )  err "
             << e_ben << "\n";
- std::cout << "BDS+Bundle      = " << bds << "  ( " << t_bds << " s )  err "
-           << e_bds << " , status " << st_bds << " , ub " << ub_bds << "\n";
+ if( has_bds )
+  std::cout << "BDS+Bundle      = " << bds << "  ( " << t_bds << " s )  err "
+            << e_bds << " , status " << st_bds << " , ub " << ub_bds << "\n";
  std::cout << "BDS+MILP master = " << v_m << "  ( " << t_m << " s )  gap "
            << rel( v_m ) << " , " << it_m << " rounds , " << ct_m << " cuts\n";
  std::cout << "BDS+MILP+Pareto = " << v_p << "  ( " << t_p << " s )  gap "

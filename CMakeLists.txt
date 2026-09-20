@@ -155,6 +155,9 @@ if (BUILD_BundleSolver AND BUILD_MILPSolver)
                 ${modNamespace}::BundleSolver
                 ${modNamespace}::MILPSolver
                 ${modNamespace}::CapacitatedFacilityLocationBlock)
+        # the ORLib instance the test reads comes with the archive that
+        # CapacitatedFacilityLocationBlock downloads and unpacks
+        add_dependencies(${modName}_cfl_test extract_cfl_txt)
         add_test(NAME ${modName}_cfl_test
                 COMMAND ${modName}_cfl_test
                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)

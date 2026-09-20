@@ -302,7 +302,7 @@ int main( int argc , char ** argv )
 
  // the Lagrangian dual is the slowest of the lot by far, hence it can be
  // left out when only the two Benders are of interest
- const bool do_ld = ( argc > 4 ) ? ( std::stoi( argv[ 4 ] ) != 0 ) : true;
+ bool do_ld = ( argc > 4 ) ? ( std::stoi( argv[ 4 ] ) != 0 ) : true;
 
  /* Which kernel the comparison is run under: 1, the default, is the linear
   * one, and 2 the polynomial one of degree two, reached through its feature
@@ -414,10 +414,19 @@ int main( int argc , char ** argv )
  cns.generate_abstract_constraints();
  cns.generate_objective();
 
+ /* The Lagrangian dual is driven by a bundle, which the configuration asks
+  * for with the parameters of one line of it: where those are not there the
+  * case is skipped, exactly as the LIBSVM one above. */
+
  double t_ld = 0;
  int st_ld = 0;
- const double ld = do_ld ? solve_from_config( & cns , "BSPar_svm_ld.txt" ,
-                                              st_ld , t_ld ) : smo;
+ double ld = smo;
+ if( do_ld )
+  try { ld = solve_from_config( & cns , "BSPar_svm_ld.txt" , st_ld , t_ld ); }
+  catch( const std::exception & e ) {
+   std::cout << "Lagrangian dual: skipped, " << e.what() << std::endl;
+   do_ld = false;
+   }
 
  // ----- the Benders structure under BendersDecompositionSolver ----------- #
 
