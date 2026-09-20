@@ -653,9 +653,9 @@ int BendersDecompositionSolver::get_int_par( idx_type par ) const
 double BendersDecompositionSolver::get_dbl_par( idx_type par ) const
 {
  switch( par ) {
-  case( dbl_BDSlv_CoreMove ): return( f_core_move );
+  case( dbl_BDSlv_CoreMove ):  return( f_core_move );
   case( dbl_BDSlv_EpiWeight ): return( f_epi_weight );
-  default:                    return( CDASolver::get_dbl_par( par ) );
+  default:                     return( CDASolver::get_dbl_par( par ) );
   }
  }
 

@@ -665,10 +665,26 @@ int main( void )
 					 st_14 , & it_14 , & ct_14 );
   ok_ns = ok_ns && ( rel( ref4 , v_f4 ) <= tol ) &&
                    ( rel( ref4 , v_14 ) <= tol );
+  /* The unified cut on the same instance, which is where it has something to
+   * do: the subproblems are infeasible at some x, and the one cut it
+   * separates is a feasibility cut there and an optimality cut elsewhere,
+   * without the two mechanisms the other two runs need. */
+
+  auto root_u4 = build_structured( false , 4 );
+  int st_u4;
+  long it_u4 = 0 , ct_u4 = 0;
+  const double v_u4 = solve_from_config( root_u4 ,
+					 "BSPar_benders_milp_unified.txt" ,
+					 st_u4 , & it_u4 , & ct_u4 );
+  ok_ns = ok_ns && ( rel( ref4 , v_u4 ) <= tol );
+  delete root_u4;
+
   std::cout << "4-scenario, no slack: ref = " << ref4 << "   Farkas = "
             << v_f4 << " ( " << it_f4 << " rounds , " << ct_f4
             << " cuts )   phase one = " << v_14 << " ( " << it_14
-            << " rounds , " << ct_14 << " cuts )" << std::endl;
+            << " rounds , " << ct_14 << " cuts )   unified = " << v_u4
+            << " ( " << it_u4 << " rounds , " << ct_u4 << " cuts )"
+            << std::endl;
   delete root_f4;
   delete root_14;
 
