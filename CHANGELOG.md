@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- the two comparisons that are not about this Solver alone, i.e., the three
+  forms of a two-stage stochastic investment problem and the two Benders
+  decompositions of a facility location instance, move to the test suite of
+  the Block each of them is posed on, where the batches of a Block live;
+  what stays here is what tests the Solver itself
+
 - taking the complicating Variable out of the Constraint of a subproblem, and
   putting them back, issues no Modification: the Solver of the subproblem is
   attached after the reformulation and reads it as it is then, while a Solver

@@ -145,24 +145,6 @@ if (BUILD_BundleSolver AND BUILD_MILPSolver)
             COMMAND ${modName}_test
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
 
-    # extirpation comparison: BDS+BundleSolver vs the ad-hoc Benders (BenForm)
-    # of CapacitatedFacilityLocationBlock on a real CFL instance, checking the
-    # solutions coincide (same model) and reporting the times
-    if (BUILD_CapacitatedFacilityLocationBlock)
-        add_executable(${modName}_cfl_test test/test_cfl.cpp)
-        target_link_libraries(${modName}_cfl_test PRIVATE
-                ${modNamespace}::${modName}
-                ${modNamespace}::BundleSolver
-                ${modNamespace}::MILPSolver
-                ${modNamespace}::CapacitatedFacilityLocationBlock)
-        # the ORLib instance the test reads comes with the archive that
-        # CapacitatedFacilityLocationBlock downloads and unpacks
-        add_dependencies(${modName}_cfl_test extract_cfl_txt)
-        add_test(NAME ${modName}_cfl_test
-                COMMAND ${modName}_cfl_test
-                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
-    endif ()
-
     # the two dual decompositions of a SVM training problem, one against the
     # other on the same instance: the consensus one under a Lagrangian Solver
     # and the Benders one under this Solver, both cross-checked against the
