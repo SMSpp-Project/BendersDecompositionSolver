@@ -36,6 +36,8 @@
 
 #include <cmath>
 
+#include <functional>
+
 /*--------------------------------------------------------------------------*/
 /*-------------------------- NAMESPACE & USING -----------------------------*/
 /*--------------------------------------------------------------------------*/
@@ -62,11 +64,13 @@ static const std::vector< std::string > int_pars_BDSlv = {
  "int_BDSlv_MaxRounds" ,
  "int_BDSlv_Pareto" ,
  "int_BDSlv_CutNorm" ,
- "int_BDSlv_PhaseOneWeights"
+ "int_BDSlv_PhaseOneWeights" ,
+ "int_BDSlv_Unified"
  };
 
 static const std::vector< std::string > dbl_pars_BDSlv = {
- "dbl_BDSlv_CoreMove"
+ "dbl_BDSlv_CoreMove" ,
+ "dbl_BDSlv_EpiWeight"
  };
 
 static const std::vector< std::string > vint_pars_BDSlv = {
@@ -373,6 +377,7 @@ int BendersDecompositionSolver::get_dflt_int_par( idx_type par ) const
   case( int_BDSlv_Pareto ):    return( eNoPareto );
   case( int_BDSlv_CutNorm ):   return( eNoNorm );
   case( int_BDSlv_PhaseOneWeights ): return( eUnitWeights );
+  case( int_BDSlv_Unified ):   return( eNoUnified );
   default:                     return( CDASolver::get_dflt_int_par( par ) );
   }
  }
@@ -383,6 +388,7 @@ double BendersDecompositionSolver::get_dflt_dbl_par( idx_type par ) const
 {
  switch( par ) {
   case( dbl_BDSlv_CoreMove ): return( 0.5 );
+  case( dbl_BDSlv_EpiWeight ): return( 1 );
   default:                    return( CDASolver::get_dflt_dbl_par( par ) );
   }
  }
@@ -508,6 +514,7 @@ void BendersDecompositionSolver::set_par( idx_type par , int value )
   case( int_BDSlv_Pareto ):    f_pareto = value;     return;
   case( int_BDSlv_CutNorm ):   f_cut_norm = value;   return;
   case( int_BDSlv_PhaseOneWeights ): f_p1_weights = value; return;
+  case( int_BDSlv_Unified ):   f_unified = value;    return;
   default:                     CDASolver::set_par( par , value );
   }
  }
@@ -518,6 +525,7 @@ void BendersDecompositionSolver::set_par( idx_type par , double value )
 {
  switch( par ) {
   case( dbl_BDSlv_CoreMove ): f_core_move = value; return;
+  case( dbl_BDSlv_EpiWeight ): f_epi_weight = value; return;
   default:                    CDASolver::set_par( par , value );
   }
  }
@@ -560,6 +568,7 @@ int BendersDecompositionSolver::get_int_par( idx_type par ) const
   case( int_BDSlv_Pareto ):    return( f_pareto );
   case( int_BDSlv_CutNorm ):   return( f_cut_norm );
   case( int_BDSlv_PhaseOneWeights ): return( f_p1_weights );
+  case( int_BDSlv_Unified ):   return( f_unified );
   default:                     return( CDASolver::get_int_par( par ) );
   }
  }
@@ -570,6 +579,7 @@ double BendersDecompositionSolver::get_dbl_par( idx_type par ) const
 {
  switch( par ) {
   case( dbl_BDSlv_CoreMove ): return( f_core_move );
+  case( dbl_BDSlv_EpiWeight ): return( f_epi_weight );
   default:                    return( CDASolver::get_dbl_par( par ) );
   }
  }
@@ -671,9 +681,36 @@ void BendersDecompositionSolver::reformulate( void )
 
  const Index NS = v_sub.size();
 
+ /* The unified cut is a cut in ( x , eta ), hence it needs the epigraph
+  * Variable to exist while the replicas that separate it are built, i.e.,
+  * before the master that holds them; and it needs one of them per
+  * subproblem, the eta of a subproblem appearing in its own cuts alone. */
+
+ if( f_unified != eNoUnified ) {
+  if( f_regime != eMILPMaster )
+   throw( std::invalid_argument( _prfx + "the unified cut needs the MILP "
+                                 "regime, the convex one having no epigraph "
+                                 "Variable to write it on" ) );
+
+  if( f_cut_type != eMultiCut )
+   throw( std::invalid_argument( _prfx + "the unified cut needs un-aggregated "
+                                 "cuts, each of them carrying the epigraph "
+                                 "Variable of its own subproblem" ) );
+
+  v_eta = new std::vector< ColVariable >( NS );
+  for( auto & eta : *v_eta ) {
+   eta.is_positive( true );
+   eta.set_value( 0 );
+   }
+  }
+
  v_BF.assign( NS , nullptr );
- v_BF1.assign( f_feas_cut == ePhaseOne ? NS : 0 , nullptr );
- v_phase1.assign( f_feas_cut == ePhaseOne ? NS : 0 , nullptr );
+
+ // the replica is the separation problem of the unified cut, too
+ const bool p1 = ( f_feas_cut == ePhaseOne ) || ( f_unified != eNoUnified );
+
+ v_BF1.assign( p1 ? NS : 0 , nullptr );
+ v_phase1.assign( p1 ? NS : 0 , nullptr );
 
  /* Once its Variable are projected out, a subproblem is no longer a part of
   * the master problem, but it is still a sub-Block of (B): it is the master
@@ -718,6 +755,17 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
                   "BendersDecompositionSolver::build_BendersBFunction: ";
 
  auto sub = f_Block->get_nested_Block( v_sub[ k ] );
+
+ /* The sign of the linearization of the value function is read off the sense
+  * of the Objective of the subproblem, hence a subproblem with no Objective
+  * (or one whose sense is not set) silently gives cuts with the wrong sign;
+  * it is rejected here rather than at the first evaluation. */
+
+ if( sub->get_objective_sense() == Objective::eUndef )
+  throw( std::invalid_argument( _prfx + "sub-Block " +
+                                std::to_string( v_sub[ k ] ) +
+                                " has no Objective, or its sense is not "
+                                "set" ) );
 
  BendersBFunction::MultiVector A;
  BendersBFunction::RealVector b;
@@ -794,7 +842,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
  /* The phase one is built before the mapping is handed over, it being built
   * on the same one. */
 
- if( f_feas_cut == ePhaseOne ) {
+ if( ! v_BF1.empty() ) {
   std::vector< int > isides( sides.size() );
   for( Index i = 0 ; i < sides.size() ; ++i )
    isides[ i ] = int( sides[ i ] );
@@ -814,6 +862,9 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
                        const std::vector< double > & b ,
                        const std::vector< int > & sides )
 {
+ static const std::string _prfx =
+                        "BendersDecompositionSolver::build_phase_one: ";
+
  auto sub = f_Block->get_nested_Block( v_sub[ k ] );
 
  /* The replica of the subproblem is the copy of its abstract representation
@@ -912,10 +963,92 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
   sides1.push_back( BendersBFunction::ConstraintSide( sides[ i ] ) );
   }
 
+ /* What the unified cut adds is one more row that can be violated, the
+  * epigraph inequality c^T y <= eta: its slack is the multiplier pi_0 of the
+  * literature, its cost is the normalization of that multiplier [see
+  * unified_cut_type and dbl_BDSlv_EpiWeight], and eta reaches the row the
+  * way x reaches the coupling ones, i.e., through the mapping, which is what
+  * makes the linearization of the phase one a cut in ( x , eta ). */
+
+ /* The Objective of a Block is the sum of its own and of those of the Block
+  * it is made of, hence the cost of the subproblem is scattered over the tree
+  * of the replica, and the phase one, which has to measure the violation of
+  * the coupling Constraint and nothing else, has to get rid of all of them
+  * and not of the one of the root alone. They are emptied here, and their
+  * sum is collected while they are, the unified cut needing it to write the
+  * epigraph inequality. */
+
+ LinearFunction::v_coeff_pair ocp;
+ double oct = 0;
+ bool nonlinear = false;
+
+ std::function< void( Block * ) > strip = [ & ]( Block * b ) {
+  if( auto ob = dynamic_cast< FRealObjective * >( b->get_objective() ) ) {
+   if( auto lf = dynamic_cast< LinearFunction * >( ob->get_function() ) ) {
+    for( auto & vp : lf->get_v_var() )
+     ocp.emplace_back( const_cast< ColVariable * >( vp.first ) , vp.second );
+    oct += lf->get_constant_term();
+    }
+   else
+    if( ob->get_function() )
+     nonlinear = true;
+
+   ob->set_function( new LinearFunction() , eNoMod );
+   }
+
+  for( Index i = 0 ; i < b->get_number_nested_Blocks() ; ++i )
+   strip( b->get_nested_Block( i ) );
+  };
+
+ strip( rep );
+
+ ColVariable * s0 = nullptr;
+
+ if( f_unified != eNoUnified ) {
+  if( sub->get_objective_sense() != Objective::eMin )
+   throw( std::invalid_argument( _prfx + "the unified cut needs a minimising "
+                                 "sub-Block, the epigraph of a maximising "
+                                 "one lying on the other side" ) );
+
+  if( nonlinear )
+   throw( std::invalid_argument( _prfx + "the unified cut needs a linear "
+                                 "Objective in sub-Block " +
+                                 std::to_string( v_sub[ k ] ) ) );
+
+  auto s0v = new std::vector< ColVariable >( 1 );
+  s0 = & s0v->front();
+  s0->is_positive( true , eNoMod );
+  rep->add_static_variable( *s0v , "s0" );
+
+  LinearFunction::v_coeff_pair cp( ocp );
+  cp.emplace_back( s0 , -1 );     // the slack helps the <= side
+
+  auto epiv = new std::vector< FRowConstraint >( 1 );
+  auto epi = & epiv->front();
+  epi->set_function( new LinearFunction( std::move( cp ) ) );
+  epi->set_lhs( - Inf< double >() , eNoMod );
+  epi->set_rhs( 0 , eNoMod );     // the mapping writes eta - c_0 here
+  rep->add_static_constraint( *epiv , "epi" );
+
+  for( auto & row : A1 )   // the coupling rows do not see eta
+   row.push_back( 0 );
+
+  BendersBFunction::RealVector erow( v_x.size() + 1 , 0 );
+  erow.back() = 1;
+
+  A1.push_back( std::move( erow ) );
+  b1.push_back( - oct );
+  cns.push_back( epi );
+  sides1.push_back( BendersBFunction::eRHS );
+  }
+
  // the total weighted violation, which is what the phase one minimizes
  auto olf = new LinearFunction();
  for( Index j = 0 ; j < sl->size() ; ++j )
   olf->add_variable( & (*sl)[ j ] , w[ j ] , eNoMod );
+
+ if( s0 )
+  olf->add_variable( s0 , f_epi_weight , eNoMod );
 
  auto obj = new FRealObjective( rep , olf );
  obj->set_sense( Objective::eMin , eNoMod );
@@ -923,8 +1056,12 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
  delete rep->get_objective();   // the one the copy took from the subproblem
  rep->set_objective( obj , eNoMod );
 
+ BendersBFunction::VarVector vx1( v_x );
+ if( s0 )   // the unified cut is a cut in ( x , eta )
+  vx1.push_back( & (*v_eta)[ k ] );
+
  v_phase1[ k ] = rep;
- v_BF1[ k ] = new BendersBFunction( rep , BendersBFunction::VarVector( v_x ) ,
+ v_BF1[ k ] = new BendersBFunction( rep , std::move( vx1 ) ,
                                     std::move( A1 ) , std::move( b1 ) ,
                                     std::move( cns ) , std::move( sides1 ) ,
                                     nullptr );
@@ -1011,10 +1148,12 @@ void BendersDecompositionSolver::build_MILP_master( void )
 
  const Index neta = ( f_cut_type == eSingleCut ) ? 1 : v_BF.size();
 
- v_eta = new std::vector< ColVariable >( neta );
- for( auto & eta : *v_eta ) {
-  eta.is_positive( true );
-  eta.set_value( 0 );
+ if( ! v_eta ) {   // the unified cut has built them already
+  v_eta = new std::vector< ColVariable >( neta );
+  for( auto & eta : *v_eta ) {
+   eta.is_positive( true );
+   eta.set_value( 0 );
+   }
   }
 
  f_master->add_static_variable( *v_eta , "eta" );
@@ -1110,6 +1249,107 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   f_master->add_dynamic_constraints( *v_cuts , nc , eModBlck );
   ++f_cuts;
+  };
+
+ /* The unified cut is a cut in ( x , eta ): the separation problem is the
+  * phase one with the epigraph inequality among the rows that carry a slack
+  * [see unified_cut_type], its value is zero exactly at the points of the
+  * epigraph of the value function, and its linearization there, asked to be
+  * nonpositive, is the cut. Its scale is arbitrary, the cut being homogeneous
+  * in the multipliers, hence it is scaled like a feasibility one. */
+
+ auto add_unified_cut = [ & ]( ColVariable * eta ,
+                               const std::vector< double > & g ,
+                               double alpha ) {
+  double scale = 1;
+  if( f_cut_norm != eNoNorm ) {
+   double nrm = 0;
+   for( Index i = 0 ; i <= nx ; ++i )
+    switch( f_cut_norm ) {
+     case( eOneNorm ): nrm += std::abs( g[ i ] ); break;
+     case( eTwoNorm ): nrm += g[ i ] * g[ i ]; break;
+     default:          nrm = std::max( nrm , std::abs( g[ i ] ) );
+     }
+
+   if( f_cut_norm == eTwoNorm )
+    nrm = std::sqrt( nrm );
+
+   if( nrm > 0 )
+    scale = 1 / nrm;
+   }
+
+  LinearFunction::v_coeff_pair cp;
+  cp.reserve( nx + 1 );
+
+  if( g[ nx ] )
+   cp.emplace_back( eta , - g[ nx ] * scale );
+
+  for( Index i = 0 ; i < nx ; ++i )
+   if( g[ i ] )
+    cp.emplace_back( v_x[ i ] , - g[ i ] * scale );
+
+  std::list< FRowConstraint > nc( 1 );
+  nc.front().set_function( new LinearFunction( std::move( cp ) ) );
+  nc.front().set_lhs( alpha * scale );
+  nc.front().set_rhs( Inf< double >() );
+
+  f_master->add_dynamic_constraints( *v_cuts , nc , eModBlck );
+  ++f_cuts;
+  };
+
+ /* One round of separation of the unified cuts: it returns how many have been
+  * added, zero saying that the incumbent is in the epigraph of every value
+  * function and the master is therefore the problem. */
+
+ auto separate_unified = [ & ]( int & status ) -> Index {
+  Index added = 0;
+
+  for( Index k = 0 ; k < K ; ++k ) {
+   auto bf = v_BF1[ k ];
+
+   const int st = bf->compute();
+   if( ( st != kOK ) && ( st != kLowPrecision ) ) {
+    status = st;
+    return( added );
+    }
+
+   if( ! bf->has_linearization( true ) )
+    if( ! bf->compute_new_linearization( true ) )
+     throw( std::logic_error( _prfx + "no linearization of the separation "
+                              "problem of subproblem " +
+                              std::to_string( k ) ) );
+
+   const double viol = bf->get_value();
+   if( viol <= 0 )   // the incumbent is in the epigraph
+    continue;
+
+   std::vector< double > g( nx + 1 , 0 );
+   bf->get_linearization_coefficients( g.data() , Range( 0 , nx + 1 ) );
+
+   /* How much the cut is violated is not the value of the separation
+    * problem: that value is scaled by the multipliers, which the costs of
+    * the slacks bound [see unified_cut_type], hence dividing it by the
+    * coefficient the cut gives the epigraph Variable, or by the largest of
+    * the others when that is zero, is what puts the violation back into the
+    * units of the master and makes the test independent of those costs. */
+
+   double cs = std::abs( g[ nx ] );
+   double xs = std::abs( (*v_eta)[ k ].get_value() );
+
+   if( cs == 0 )
+    for( Index i = 0 ; i < nx ; ++i ) {
+     cs = std::max( cs , std::abs( g[ i ] ) );
+     xs = std::max( xs , std::abs( v_x[ i ]->get_value() ) );
+     }
+
+   if( ( cs == 0 ) || ( viol <= tol * cs * std::max( 1.0 , xs ) ) )
+    continue;
+
+   add_unified_cut( & (*v_eta)[ k ] , g , bf->get_linearization_constant() );
+   ++added;
+   }
+
+  return( added );
   };
 
  /* Cutting away an x at which a subproblem has no solution: which cut that is
@@ -1303,6 +1543,34 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   f_master_solver->get_var_solution();
 
   f_value = f_master_solver->get_lb();
+
+  /* The unified cuts are separated on their own: one problem per subproblem,
+   * telling feasibility and optimality apart by itself, hence neither the
+   * feasibility cuts nor the aggregation nor the Pareto ones have anything
+   * to do here. */
+
+  if( f_unified != eNoUnified ) {
+   int st = kOK;
+   const Index added = separate_unified( st );
+
+   if( ( st != kOK ) && ( st != kLowPrecision ) )
+    return( st );
+
+   if( added )
+    continue;
+
+   /* No cut is violated: the master is the problem. The value functions have
+    * not been evaluated at the incumbent, the separation problems having
+    * been evaluated in their place, and map_back_solution() reads the y^k of
+    * each subproblem from where its Solver left them: they are evaluated
+    * here, once. */
+
+   for( Index k = 0 ; k < K ; ++k )
+    v_BF[ k ]->compute();
+
+   f_solved = true;
+   return( status );
+   }
 
   // evaluate each value function at the master solution- - - - - - - - - - -
 

@@ -63,6 +63,18 @@ happened to return. The costs are either all one or, for each row, the
 inverse of its norm, which makes the cut independent of how the rows are
 scaled.
 
+Feasibility and optimality can also be separated *together*, by one
+cut-generating problem rather than by two mechanisms: the epigraph inequality
+joins the coupling `Constraint` that carry a slack in the phase one, the
+epigraph `Variable` enters its value function the way the complicating ones
+do, and the linearization in both, asked to be nonpositive, is the cut, which
+is a feasibility one where the multiplier of the epigraph inequality is zero
+and an optimality one where it is positive. This is the unified cut of
+Cornuejols and Lemarechal, of Fischetti, Salvagnin and Zanette and of
+Brandenberg and Stursberg, and what decides how it divides itself between the
+two roles is the ratio between the cost of the slack of the epigraph
+inequality and those of the coupling ones.
+
 The master and the subproblem `Solver` are instantiated through the `Solver`
 factory and configured via `Configuration`, so that how the master and the
 subproblems are solved is not hard-wired. See the class documentation for the

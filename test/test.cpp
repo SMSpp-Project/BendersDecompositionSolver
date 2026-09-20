@@ -209,6 +209,96 @@ static AbstractBlock * build_structured( bool with_slack = true , int nsub = 1 ,
 
 /*--------------------------------------------------------------------------*/
 
+/* The same instance, with each scenario built as a tree: the transport
+ * Variable of a location, and their cost, live in a sub-Block of the
+ * scenario, which keeps the demand and the coupling Constraint. This is the
+ * shape a subproblem has whenever it is a model of its own rather than a bare
+ * set of rows, and the Objective it is evaluated with is then the sum of
+ * those of the Block it is made of; the separation problems that replicate it
+ * have to reckon with all of them, which is what this instance checks. */
+
+static AbstractBlock * build_nested( int nsub = 1 )
+{
+ auto root = new AbstractBlock();
+ auto y = make_y( true , false );
+ root->add_static_variable( * y , "y" );
+
+ auto df = new LinearFunction();
+ for( int i = 0 ; i < M ; ++i )
+  df->add_variable( & ( * y )[ i ] , fixed_cost[ i ] );
+ auto robj = new FRealObjective( root , df );
+ robj->set_sense( Objective::eMin );
+ root->set_objective( robj );
+
+ for( int s = 0 ; s < nsub ; ++s ) {
+  const std::string t = std::to_string( s );
+  auto sub = new AbstractBlock( root );
+
+  // one sub-Block per location, carrying its Variable and its own cost
+  std::vector< std::vector< ColVariable > * > x( M );
+
+  for( int i = 0 ; i < M ; ++i ) {
+   auto loc = new AbstractBlock( sub );
+   x[ i ] = new std::vector< ColVariable >( N );
+   for( auto & v : * x[ i ] )
+    v.is_positive( true );
+   loc->add_static_variable( * x[ i ] , "x" + t + "_" + std::to_string( i ) );
+
+   auto lf = new LinearFunction();
+   for( int j = 0 ; j < N ; ++j )
+    lf->add_variable( & ( * x[ i ] )[ j ] , cost[ i ][ j ] );
+   auto lobj = new FRealObjective( loc , lf );
+   lobj->set_sense( Objective::eMin );
+   loc->set_objective( lobj );
+
+   sub->add_nested_Block( loc );
+   }
+
+  auto sl = new std::vector< ColVariable >( N );
+  for( auto & v : * sl )
+   v.is_positive( true );
+  sub->add_static_variable( * sl , "s" + t );
+
+  auto dem = new std::vector< FRowConstraint >( N );
+  for( int j = 0 ; j < N ; ++j ) {
+   auto f = new LinearFunction();
+   for( int i = 0 ; i < M ; ++i )
+    f->add_variable( & ( * x[ i ] )[ j ] , 1 );
+   f->add_variable( & ( * sl )[ j ] , 1 );
+   ( * dem )[ j ].set_function( f );
+   ( * dem )[ j ].set_both( 1 );
+   }
+  sub->add_static_constraint( * dem , "demand" + t );
+
+  auto cap = new std::vector< FRowConstraint >( M );
+  for( int i = 0 ; i < M ; ++i ) {
+   auto f = new LinearFunction();
+   for( int j = 0 ; j < N ; ++j )
+    f->add_variable( & ( * x[ i ] )[ j ] , demand[ j ] );
+   f->add_variable( & ( * y )[ i ] , - capacity[ i ] );
+   ( * cap )[ i ].set_function( f );
+   ( * cap )[ i ].set_lhs( - Inf< double >() );
+   ( * cap )[ i ].set_rhs( 0 );
+   }
+  sub->add_static_constraint( * cap , "capacity" + t );
+
+  // the scenario itself only pays the slacks, the transport cost being in
+  // the Block it is made of
+  auto sf = new LinearFunction();
+  for( int j = 0 ; j < N ; ++j )
+   sf->add_variable( & ( * sl )[ j ] , BigM );
+  auto sobj = new FRealObjective( sub , sf );
+  sobj->set_sense( Objective::eMin );
+  sub->set_objective( sobj );
+
+  root->add_nested_Block( sub );
+  }
+
+ return( root );
+ }
+
+/*--------------------------------------------------------------------------*/
+
 // a sparse instance: each customer can be served by two locations only, so
 // that an infeasible subproblem has more than one way of being so, i.e., its
 // dual has more than one extreme ray, and the capacity row i, a coupling
@@ -661,6 +751,52 @@ int main( void )
    delete mono_b;
    }
 
+ /* ----- the unified cut ------------------------------------------------- #
+  *
+  * One cut for feasibility and optimality, separated by the phase one with
+  * the epigraph inequality among the rows that carry a slack: it has to end
+  * at the same optimum as the ordinary cuts, on the flat instance and on the
+  * one whose scenario is a tree, where the cost the epigraph inequality
+  * bounds is the sum of those of three sub-Block. */
+
+ bool ok_u = true;
+ { auto root_u = build_structured( true , 2 );
+   int st_u;
+   long it_u = 0 , ct_u = 0;
+   const double v_u = solve_from_config( root_u ,
+					 "BSPar_benders_milp_unified.txt" ,
+					 st_u , & it_u , & ct_u );
+   delete root_u;
+
+   auto mono_n = build_nested( 2 );
+   int st_n;
+   const double ref_n = solve_from_config( mono_n , "BSPar_sub.txt" , st_n );
+
+   auto root_n = build_nested( 2 );
+   int st_nu;
+   long it_nu = 0 , ct_nu = 0;
+   const double v_nu = solve_from_config( root_n ,
+					  "BSPar_benders_milp_unified.txt" ,
+					  st_nu , & it_nu , & ct_nu );
+   delete root_n;
+
+   auto root_nm = build_nested( 2 );
+   int st_nm;
+   const double v_nm = solve_from_config( root_nm , "BSPar_benders_milp.txt" ,
+					  st_nm );
+   delete root_nm;
+   delete mono_n;
+
+   ok_u = ( rel( ref2 , v_u ) <= tol ) && ( rel( ref_n , v_nu ) <= tol ) &&
+          ( rel( ref_n , v_nm ) <= tol );
+
+   std::cout << "unified: flat = " << v_u << " ( " << it_u << " rounds , "
+             << ct_u << " cuts , ref " << ref2 << " )   nested = " << v_nu
+             << " ( " << it_nu << " rounds , " << ct_nu << " cuts , ref "
+             << ref_n << " , ordinary " << v_nm << " )"
+             << ( ok_u ? "   -> OK" : "   -> FAIL" ) << std::endl;
+   }
+
  // ----- compare ( optimality-cut cases, the supported ones ) ------------- #
  const double err = rel( ref , ben );
  const double err2 = rel( ref , ben2 );
@@ -678,7 +814,7 @@ int main( void )
 	       && ( rel( ref2 , ben_s2 ) <= tol );
  std::cout << "2-scenario: " << ( ok2 ? "-> OK" : "-> FAIL" ) << std::endl;
 
- const bool ok = ok1 && ok2 && ok_ns && ok_ng && ok_k;
+ const bool ok = ok1 && ok2 && ok_ns && ok_ng && ok_k && ok_u;
 
  delete root_s2;
  delete root_m2;
