@@ -45,11 +45,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- the two comparisons that are not about this Solver alone, i.e., the three
-  forms of a two-stage stochastic investment problem and the two Benders
-  decompositions of a facility location instance, move to the test suite of
-  the Block each of them is posed on, where the batches of a Block live;
-  what stays here is what tests the Solver itself
+- everything that is not about this Solver alone moves to the test suite of
+  the Block it is posed on, where the batches of a Block live: the three
+  forms of a two-stage stochastic investment problem, the two Benders
+  decompositions of a facility location instance, the two dual
+  decompositions of a support vector machine and the unit test of the row
+  pruning. What stays here is what tests the Solver itself, on a Block it
+  builds out of nothing, so that the module knows of no other module than
+  the Solver its master and its subproblems need
 
 - taking the complicating Variable out of the Constraint of a subproblem, and
   putting them back, issues no Modification: the Solver of the subproblem is
