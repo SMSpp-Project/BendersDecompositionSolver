@@ -128,51 +128,9 @@ target_link_libraries(${modName} PUBLIC
 add_library(${modNamespace}::${modName} ALIAS ${modName})
 
 # ----- Tests --------------------------------------------------------------- #
-# The validation test compares BendersDecompositionSolver against a monolithic
-# reference solve, so it needs a master Solver (BundleSolver) and a subproblem
-# Solver (a *MILPSolver); it is built only when both modules are available.
-if (BUILD_BundleSolver AND BUILD_MILPSolver)
-    # enable testing in this directory's scope: the umbrella calls
-    # enable_testing() only after this subdirectory has been processed, so the
-    # test would otherwise not be registered with CTest
-    enable_testing()
-    add_executable(${modName}_test test/test.cpp)
-    target_link_libraries(${modName}_test PRIVATE
-            ${modNamespace}::${modName}
-            ${modNamespace}::BundleSolver
-            ${modNamespace}::MILPSolver)
-    add_test(NAME ${modName}_test
-            COMMAND ${modName}_test
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
-
-    # the two dual decompositions of a SVM training problem, one against the
-    # other on the same instance: the consensus one under a Lagrangian Solver
-    # and the Benders one under this Solver, both cross-checked against the
-    # ad hoc SMOSolver of SVMBlock
-    if (BUILD_SVMBlock AND BUILD_LagrangianDualSolver)
-        add_executable(${modName}_svm_test test/test_svm.cpp)
-        target_link_libraries(${modName}_svm_test PRIVATE
-                ${modNamespace}::${modName}
-                ${modNamespace}::BundleSolver
-                ${modNamespace}::MILPSolver
-                ${modNamespace}::LagrangianDualSolver
-                ${modNamespace}::SVMBlock)
-        add_test(NAME ${modName}_svm_test
-                COMMAND ${modName}_svm_test
-                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
-    endif ()
-
-    # unit test for PolyhedralFunction::remove_parallel_rows() and
-    # PolyhedralFunctionBlock::remove_redundant_rows() (the row pruning that
-    # replaced the standalone CutProcessing class)
-    add_executable(${modName}_prune_test test/test_prune.cpp)
-    target_link_libraries(${modName}_prune_test PRIVATE
-            ${modNamespace}::SMS++
-            ${modNamespace}::MILPSolver)
-    add_test(NAME ${modName}_prune_test
-            COMMAND ${modName}_prune_test
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
-endif ()
+# This module has no test of its own: what a Benders decomposition can be
+# tested on is a problem, hence a Block of another module, and a test that
+# needs one belongs to the suite of that Block [see tests/].
 
 # ----- Install instructions ------------------------------------------------ #
 # The following commands are used when installing the library

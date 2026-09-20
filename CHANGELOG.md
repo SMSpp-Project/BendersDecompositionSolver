@@ -45,6 +45,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- the tests are no longer here, all three of them having to be posed on a
+  problem, i.e., on a Block this module does not carry: the run of every way
+  this Solver has of writing a cut, against the monolithic optimum of a small
+  facility location instance, is in `tests/CapacitatedFacilityLocation`
+  beside the comparison with the ad hoc Benders of that Block; the comparison
+  of the two dual decompositions of a support vector machine, which is a test
+  of what `SVMBlock::set_structure()` deals out, is in `tests/SVMBlock`; and
+  the unit test of the pruning of the rows of a `PolyhedralFunction`, which
+  names nothing of Benders, is in `tests/PolyhedralFunctionBlock`. A test of
+  this Solver against itself, needing no problem, would belong here
+
 - the two comparisons that are not about this Solver alone, i.e., the three
   forms of a two-stage stochastic investment problem and the two Benders
   decompositions of a facility location instance, move to the test suite of
