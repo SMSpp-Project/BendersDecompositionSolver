@@ -822,7 +822,7 @@ int main( void )
    ok_r = ( rel( ref2 , v_r ) <= tol ) && ( rel( ref2 , v_a ) <= tol );
 
    std::cout << "Block given back: Benders = " << v_r << " ( " << it_r
-             << " rounds , " << ct_r << " cuts )   the same Block afterwards = "
+             << " rounds , " << ct_r << " cuts )   the same Block then = "
              << v_a << "   ref = " << ref2
              << ( ok_r ? "   -> OK" : "   -> FAIL" ) << std::endl;
 

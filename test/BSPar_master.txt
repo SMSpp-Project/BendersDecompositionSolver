@@ -32,7 +32,8 @@ ComputeConfig # exact type of the ComputeConfig object
 13 # number of integer parameters
 
 # now all the integer parameters
-intMPStbl              0 # stabilization: 0 = proximal, 1 = level, 2 = doubly stabilized
+intMPStbl         0 # stabilization: 0 = proximal, 1 = level,
+                    # 2 = doubly stabilized
 intMaxIter   100000 # MaxIter, max number of iterations for each call
 intLogVerb        0 # LogVerb, log verbosity of main Bundle algorithm
 intBPar1         20 # discard items when they have been useless for <this> iterations
