@@ -1559,14 +1559,40 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    if( added )
     continue;
 
-   /* No cut is violated: the master is the problem. The value functions have
-    * not been evaluated at the incumbent, the separation problems having
-    * been evaluated in their place, and map_back_solution() reads the y^k of
-    * each subproblem from where its Solver left them: they are evaluated
-    * here, once. */
+   /* The separation problems say that the incumbent is in the epigraph of
+    * every value function, but they say it through multipliers that the
+    * costs of the slacks bound, hence a cut can be missed when those costs
+    * are far from the scale of the model. What closes the loop is therefore
+    * the value functions themselves, evaluated here, which is also what
+    * leaves the y^k where map_back_solution() reads them from: if one of
+    * them is above its epigraph Variable after all, its ordinary cut is
+    * added and the loop goes on. */
 
-   for( Index k = 0 ; k < K ; ++k )
-    v_BF[ k ]->compute();
+   Index late = 0;
+
+   for( Index k = 0 ; k < K ; ++k ) {
+    std::vector< double > g( nx , 0 );
+    double alpha;
+    bool diagonal;
+
+    const int st = get_cut( k , g , alpha , diagonal );
+    if( st != kOK )
+     return( st );
+
+    if( ! diagonal ) {
+     add_feasibility_cut( k , g , alpha );
+     ++late;
+     continue;
+     }
+
+    if( violated( v_BF[ k ]->get_value() , (*v_eta)[ k ].get_value() ) ) {
+     add_cut( & (*v_eta)[ k ] , g , alpha );
+     ++late;
+     }
+    }
+
+   if( late )
+    continue;
 
    f_solved = true;
    return( status );

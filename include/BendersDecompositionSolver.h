@@ -443,7 +443,19 @@ class BendersDecompositionSolver : public CDASolver
   * yields a cut that is valid but much weaker than the ordinary one. The
   * costs of the coupling slacks are what int_BDSlv_PhaseOneWeights says, that
   * of the epigraph one is dbl_BDSlv_EpiWeight, and a model in which the two
-  * are not commensurate needs the latter to be set accordingly. */
+  * are not commensurate needs the latter to be set accordingly.
+  *
+  * The ratio cannot be pushed as far as one likes, though: the costs are
+  * coefficients of the separation problem, so an extreme one makes it
+  * ill-conditioned, and the multipliers that come out of it are then only
+  * approximately feasible for its dual, which is to say that the cut they
+  * give is only approximately valid. What that looks like is a master whose
+  * value ends up *above* the optimum, the cuts having removed it. The
+  * separation is also not the only thing the loop trusts: a round that
+  * separates no cut is confirmed by evaluating the value functions
+  * themselves, which is what leaves the solution of each subproblem where
+  * map_back_solution() reads it from anyway, and the loop goes on if one of
+  * them turns out to be above its epigraph Variable after all. */
 
  enum unified_cut_type {
   eNoUnified = 0 ,  ///< feasibility and optimality cuts, separately

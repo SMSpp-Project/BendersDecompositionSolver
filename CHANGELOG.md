@@ -23,7 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in ( x , eta ), asked to be nonpositive, is the cut. Together with it,
   `dbl_BDSlv_EpiWeight`, the cost of the slack of the epigraph inequality,
   whose ratio to the costs of the coupling ones is the normalization of the
-  separation problem
+  separation problem. Since that normalization bounds the multipliers, a
+  separation problem whose costs are far from the scale of the model can miss
+  a cut, hence a round that separates none is not believed on its word: the
+  value functions are evaluated, which is what leaves the solution of each
+  subproblem where it is read from anyway, and the loop ends only if none of
+  them is above its epigraph Variable. The ratio cannot be pushed arbitrarily
+  far, though: the costs are coefficients of the separation problem, an
+  extreme one makes it ill-conditioned, and multipliers that are only
+  approximately feasible for its dual give a cut that is only approximately
+  valid, which shows up as a master value above the optimum
 
 ### Changed
 
