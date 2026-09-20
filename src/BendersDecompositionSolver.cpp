@@ -65,7 +65,8 @@ static const std::vector< std::string > int_pars_BDSlv = {
  "int_BDSlv_Pareto" ,
  "int_BDSlv_CutNorm" ,
  "int_BDSlv_PhaseOneWeights" ,
- "int_BDSlv_Unified"
+ "int_BDSlv_Unified" ,
+ "int_BDSlv_Restore"
  };
 
 static const std::vector< std::string > dbl_pars_BDSlv = {
@@ -110,7 +111,11 @@ void BendersDecompositionSolver::set_Block( Block * block )
 
  CDASolver::set_Block( block );
 
- if( block )
+ /* Reformulating here is reformulating once and for all, which is what is
+  * wanted unless (B) has to be a problem of its own in between two calls to
+  * compute() [see block_handling_type]. */
+
+ if( block && ( f_restore == eKeepReformulation ) )
   reformulate();
  }
 
@@ -127,6 +132,49 @@ void BendersDecompositionSolver::dismantle( void )
   delete f_master_solver;
   f_master_solver = nullptr;
   }
+
+ /* Projecting the y^k out has taken the x out of the Constraint of the
+  * subproblem, and that is a change to (B), not to anything of this Solver's
+  * own: they are put back here, with the coefficient they had, which the
+  * mapping carries the opposite of, and with the sides they had, which the
+  * mapping has been overwriting at every evaluation. (B) is thus the problem
+  * it was before this Solver saw it, which is what lets anybody else look at
+  * it [see block_handling_type]. */
+
+ for( Index k = 0 ; k < v_BF.size() ; ++k ) {
+  auto bf = v_BF[ k ];
+  if( ( ! bf ) || ( k >= v_sides0.size() ) )
+   continue;
+
+  const auto & A = bf->get_A();
+  const auto & cns = bf->get_constraints();
+  const auto & sd0 = v_sides0[ k ];
+
+  for( Index j = 0 ; ( j < cns.size() ) && ( j < sd0.size() ) ; ++j ) {
+   auto cn = dynamic_cast< FRowConstraint * >( cns[ j ] );
+   if( ! cn )
+    continue;
+
+   if( auto lf = dynamic_cast< LinearFunction * >( cn->get_function() ) ) {
+    LinearFunction::v_coeff_pair cp;
+    for( Index i = 0 ; ( i < A[ j ].size() ) && ( i < v_x.size() ) ; ++i )
+     if( A[ j ][ i ] )
+      cp.emplace_back( v_x[ i ] , - A[ j ][ i ] );
+
+    if( ! cp.empty() ) {
+     lf->add_variables( LinearFunction::v_coeff_pair( cp ) , eNoMod );
+
+     for( auto & pr : cp )
+      pr.first->add_active( cn );
+     }
+    }
+
+   cn->set_lhs( sd0[ j ].first , eNoMod );
+   cn->set_rhs( sd0[ j ].second , eNoMod );
+   }
+  }
+
+ v_sides0.clear();
 
  /* Each subproblem is owned by (B), which still has it among its sub-Block:
   * the BendersBFunction has to let go of it, or it would be deleted twice.
@@ -158,7 +206,20 @@ void BendersDecompositionSolver::dismantle( void )
   /* The master is this Solver's own, and so are the BendersBFunction, which
    * nothing else refers to: deleting the master disposes of the epigraph
    * Variable, of the cuts and of the Objective they enter, and (B) has to be
-   * un-grafted from it first, or it would be deleted with it. */
+   * un-grafted from it first, or it would be deleted with it.
+   *
+   * The cuts are Constraint over the x, which are Variable of (B) and
+   * survive the master: each of them is emptied here, which is what takes it
+   * out of the list of the Constraint the x are active in, since a Variable
+   * that kept a cut of a master that is no longer there would hand it to
+   * whoever reads (B) next. */
+
+  if( v_cuts ) {
+   for( auto & cut : *v_cuts )
+    cut.set_function( nullptr , eNoMod );
+
+   v_cuts->clear();
+   }
 
   for( auto bf : v_BF )
    delete bf;
@@ -211,22 +272,33 @@ int BendersDecompositionSolver::compute( bool changedvars )
 
  f_solved = false;
 
+ int status;
+
  if( f_regime == eMILPMaster ) {
-  const int status = solve_MILP_master();
-  map_back_solution();
-  return( status );
+  status = solve_MILP_master();
+  f_ub = f_solved ? f_value : Inf< OFValue >();
+  }
+ else {
+  /* In the convex regime the master Solver is a bundle-type one, which drives
+   * the cutting-plane loop by itself: the linearizations it asks the value
+   * functions for *are* the Benders cuts. */
+
+  status = f_master_solver->compute( changedvars );
+
+  f_value = f_master_solver->get_lb();
+  f_ub = f_master_solver->get_ub();
+  f_solved = f_master_solver->has_var_solution();
   }
 
- /* In the convex regime the master Solver is a bundle-type one, which drives
-  * the cutting-plane loop by itself: the linearizations it asks the value
-  * functions for *are* the Benders cuts. */
-
- const int status = f_master_solver->compute( changedvars );
-
- f_value = f_master_solver->get_lb();
- f_solved = f_master_solver->has_var_solution();
-
  map_back_solution();
+
+ /* Everything this Solver has assembled around (B) is disposed of, (B) being
+  * asked to be a problem of its own out of compute(); what has been read out
+  * of the master is kept, so that the value and the solution can still be
+  * asked for. */
+
+ if( f_restore == eRestoreBlock )
+  dismantle();
 
  return( status );
 
@@ -238,10 +310,10 @@ int BendersDecompositionSolver::compute( bool changedvars )
 
 Solver::OFValue BendersDecompositionSolver::get_lb( void )
 {
- if( f_regime == eMILPMaster )
+ if( ( f_regime == eMILPMaster ) || ( ! f_master_solver ) )
   return( f_value );
 
- return( f_master_solver ? f_master_solver->get_lb() : - Inf< OFValue >() );
+ return( f_master_solver->get_lb() );
 
  }  // end( BendersDecompositionSolver::get_lb )
 
@@ -249,10 +321,10 @@ Solver::OFValue BendersDecompositionSolver::get_lb( void )
 
 Solver::OFValue BendersDecompositionSolver::get_ub( void )
 {
- if( f_regime == eMILPMaster )
-  return( f_solved ? f_value : Inf< OFValue >() );
+ if( ( f_regime == eMILPMaster ) || ( ! f_master_solver ) )
+  return( f_ub );
 
- return( f_master_solver ? f_master_solver->get_ub() : Inf< OFValue >() );
+ return( f_master_solver->get_ub() );
 
  }  // end( BendersDecompositionSolver::get_ub )
 
@@ -260,10 +332,10 @@ Solver::OFValue BendersDecompositionSolver::get_ub( void )
 
 bool BendersDecompositionSolver::has_var_solution( void )
 {
- if( f_regime == eMILPMaster )
+ if( ( f_regime == eMILPMaster ) || ( ! f_master_solver ) )
   return( f_solved );
 
- return( f_master_solver && f_master_solver->has_var_solution() );
+ return( f_master_solver->has_var_solution() );
 
  }  // end( BendersDecompositionSolver::has_var_solution )
 
@@ -378,6 +450,7 @@ int BendersDecompositionSolver::get_dflt_int_par( idx_type par ) const
   case( int_BDSlv_CutNorm ):   return( eNoNorm );
   case( int_BDSlv_PhaseOneWeights ): return( eUnitWeights );
   case( int_BDSlv_Unified ):   return( eNoUnified );
+  case( int_BDSlv_Restore ):   return( eKeepReformulation );
   default:                     return( CDASolver::get_dflt_int_par( par ) );
   }
  }
@@ -515,6 +588,7 @@ void BendersDecompositionSolver::set_par( idx_type par , int value )
   case( int_BDSlv_CutNorm ):   f_cut_norm = value;   return;
   case( int_BDSlv_PhaseOneWeights ): f_p1_weights = value; return;
   case( int_BDSlv_Unified ):   f_unified = value;    return;
+  case( int_BDSlv_Restore ):   f_restore = value;    return;
   default:                     CDASolver::set_par( par , value );
   }
  }
@@ -569,6 +643,7 @@ int BendersDecompositionSolver::get_int_par( idx_type par ) const
   case( int_BDSlv_CutNorm ):   return( f_cut_norm );
   case( int_BDSlv_PhaseOneWeights ): return( f_p1_weights );
   case( int_BDSlv_Unified ):   return( f_unified );
+  case( int_BDSlv_Restore ):   return( f_restore );
   default:                     return( CDASolver::get_int_par( par ) );
   }
  }
@@ -705,6 +780,7 @@ void BendersDecompositionSolver::reformulate( void )
   }
 
  v_BF.assign( NS , nullptr );
+ v_sides0.assign( NS , {} );
 
  // the replica is the separation problem of the unified cut, too
  const bool p1 = ( f_feas_cut == ePhaseOne ) || ( f_unified != eNoUnified );
@@ -784,6 +860,11 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
  Subset cpl;        // the positions, in scanning order, of the coupling ones
  Index scanned = 0;
 
+ // the sides each coupling Constraint has now, which is what it is given
+ // back when the reformulation is undone [see dismantle()]
+ auto & sd0 = v_sides0[ k ];
+ sd0.clear();
+
  auto scan = [ & ]( FRowConstraint & con ) {
   const Index pos = scanned++;
   auto lf = dynamic_cast< LinearFunction * >( con.get_function() );
@@ -791,6 +872,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
    return;
 
   Subset nms;             // the positions of the x terms in the Function
+  std::vector< ColVariable * > rmv;   // and the x themselves
   BendersBFunction::RealVector row;
 
   Index i = 0;
@@ -801,6 +883,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
      row.assign( v_x.size() , 0 );
     row[ xit->second ] -= cp.second;
     nms.push_back( i );
+    rmv.push_back( v_x[ xit->second ] );
     }
    ++i;
    }
@@ -816,6 +899,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
 
   A.push_back( std::move( row ) );
   b.push_back( lhs ? con.get_lhs() : con.get_rhs() );
+  sd0.emplace_back( con.get_lhs() , con.get_rhs() );
   cns.push_back( & con );
   cpl.push_back( pos );
   sides.push_back( ( lhs && rhs ) ? BendersBFunction::eBoth
@@ -823,11 +907,20 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
                                           : BendersBFunction::eRHS ) );
 
   /* The x terms leave the Constraint, which is what makes the subproblem a
-   * problem in y alone. The Modification has to be issued, for otherwise the
-   * Variable keep the Constraint among the "active" ones and whoever loads
-   * the subproblem later finds them there. */
+   * problem in y alone. No Modification is issued: a Solver of the
+   * subproblem does not exist yet, being attached to it once the
+   * reformulation is done and reading it as it is then, while a Solver of
+   * (B) that did exist would be told of a change that is none of its
+   * business, this Solver undoing it before anybody is asked anything [see
+   * block_handling_type]. What the Modification would do besides telling,
+   * i.e., taking the Constraint out of the ones the Variable is active in,
+   * is done here, since a Solver building its model by columns reads a
+   * Variable's rows from that registration. */
 
-  lf->remove_variables( std::move( nms ) , true );
+  lf->remove_variables( std::move( nms ) , true , eNoMod );
+
+  for( auto xi : rmv )
+   xi->remove_active( & con );
   };
 
  sub->for_each_constraint_group( [ & scan ]( const BaseGroup & group ) {

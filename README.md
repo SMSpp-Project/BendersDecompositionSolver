@@ -75,6 +75,16 @@ Brandenberg and Stursberg, and what decides how it divides itself between the
 two roles is the ratio between the cost of the slack of the epigraph
 inequality and those of the coupling ones.
 
+Projecting the second-stage `Variable` out is not done on a copy: the
+complicating `Variable` are taken out of the `Constraint` of the subproblems,
+and in the MILP regime the `Block` itself is grafted into the master, so while
+that lasts the `Block` is not the problem it was. It can be asked to be given
+back as it was at the end of every `compute()`, which is what lets another
+`Solver` be attached to the same `Block` and cross-checked against this one,
+as a `BlockSolverConfig` with more than one `Solver` does; what that costs is
+the reformulation, paid at every `compute()`, and the cuts, which are pieces
+of the master and are disposed of with it.
+
 The master and the subproblem `Solver` are instantiated through the `Solver`
 factory and configured via `Configuration`, so that how the master and the
 subproblems are solved is not hard-wired. See the class documentation for the

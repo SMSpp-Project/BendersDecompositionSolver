@@ -462,6 +462,32 @@ class BendersDecompositionSolver : public CDASolver
   eUnified   = 1    ///< one cut for both, out of the phase one
   };
 
+/*--------------------------------------------------------------------------*/
+ /// whether (B) is given back as it was after each compute()
+ /** Projecting the y^k out is not something this Solver does to a copy: the
+  * x are taken out of the Constraint of each subproblem, which is a change
+  * to (B), and in the MILP regime (B) itself is grafted into the master.
+  * While that lasts, (B) is not the problem it was, so any other Solver
+  * attached to it is looking at something else, and a BlockSolverConfig that
+  * registers this Solver beside others, which is what a cross-check is, gives
+  * the others the wrong answer.
+  *
+  * With eRestoreBlock the reformulation is done at the beginning of each
+  * compute() and undone at the end of it: the x go back into the Constraint
+  * they were taken from, with the coefficient and the side they had, (B) goes
+  * back to its father, and everything this Solver had assembled around it is
+  * disposed of. What that costs is the reformulation itself, paid once per
+  * compute() instead of once per Block, and the cuts, which are pieces of the
+  * master and are therefore thrown away with it, so that nothing is warm
+  * started; what it buys is that (B) is a problem of its own whenever this
+  * Solver is not inside compute(), hence that other Solver can be attached to
+  * it and cross-checked against this one. */
+
+ enum block_handling_type {
+  eKeepReformulation = 0 ,  ///< the reformulation stays until the Solver goes
+  eRestoreBlock      = 1    ///< (B) is given back after each compute()
+  };
+
 /** @} ---------------------------------------------------------------------*/
 /*------------- CONSTRUCTING AND DESTRUCTING BendersDecompositionSolver ----*/
 /*--------------------------------------------------------------------------*/
@@ -582,6 +608,9 @@ class BendersDecompositionSolver : public CDASolver
 
   int_BDSlv_Unified ,
   ///< one cut for feasibility and optimality, a unified_cut_type value
+
+  int_BDSlv_Restore ,
+  ///< whether (B) is given back after each compute(), a block_handling_type
 
   intLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
@@ -854,8 +883,14 @@ class BendersDecompositionSolver : public CDASolver
  /// the value of the master at the last compute()
  OFValue f_value = 0;
 
+ /// the upper bound of the master at the last compute()
+ OFValue f_ub = Inf< OFValue >();
+
  /// true if a solution of the master is available
  bool f_solved = false;
+
+ /// the sides each coupling Constraint had before the x were taken out of it
+ std::vector< std::vector< std::pair< double , double > > > v_sides0;
 
  /// the core point the Pareto-optimal cuts are generated at, in master order
  std::vector< double > v_core;
@@ -887,6 +922,8 @@ class BendersDecompositionSolver : public CDASolver
  int f_p1_weights = eUnitWeights;  ///< int_BDSlv_PhaseOneWeights
 
  int f_unified = eNoUnified;  ///< int_BDSlv_Unified
+
+ int f_restore = eKeepReformulation;  ///< int_BDSlv_Restore
 
  double f_epi_weight = 1;  ///< dbl_BDSlv_EpiWeight
 

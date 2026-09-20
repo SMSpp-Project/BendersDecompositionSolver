@@ -797,6 +797,80 @@ int main( void )
              << ( ok_u ? "   -> OK" : "   -> FAIL" ) << std::endl;
    }
 
+ /* ----- the Block given back ------------------------------------------- #
+  *
+  * With the reformulation undone at the end of every compute() the Block is
+  * a problem of its own in between two of them, which is what lets another
+  * Solver be attached to it: the same Block is therefore solved again, by a
+  * :MILPSolver reading the whole tree, i.e., the extensive form, and the two
+  * have to agree. Were the complicating Variable not given back to the
+  * Constraint they were taken out of, the second solve would be of a problem
+  * in which the subproblems are free of the master, hence of a relaxation. */
+
+ bool ok_r = true;
+ { auto root_r = build_structured( true , 2 );
+   int st_r;
+   long it_r = 0 , ct_r = 0;
+   const double v_r = solve_from_config( root_r ,
+					 "BSPar_benders_milp_restore.txt" ,
+					 st_r , & it_r , & ct_r );
+
+   int st_a;
+   const double v_a = solve_from_config( root_r , "BSPar_sub.txt" , st_a );
+   delete root_r;
+
+   ok_r = ( rel( ref2 , v_r ) <= tol ) && ( rel( ref2 , v_a ) <= tol );
+
+   std::cout << "Block given back: Benders = " << v_r << " ( " << it_r
+             << " rounds , " << ct_r << " cuts )   the same Block afterwards = "
+             << v_a << "   ref = " << ref2
+             << ( ok_r ? "   -> OK" : "   -> FAIL" ) << std::endl;
+
+   /* The same, with the two Solver registered together rather than one after
+    * the other, which is what a BlockSolverConfig of a cross-check does: each
+    * of them is computed twice, in both orders, since what one does to the
+    * Block the other has to see, or not see, whenever it is asked. */
+
+   auto root_x = build_structured( true , 2 );
+   auto cfg = Configuration::deserialize( "BSPar_benders_milp_cross.txt" );
+   auto bsc = dynamic_cast< BlockSolverConfig * >( cfg );
+   if( ! bsc ) {
+    delete cfg;
+    std::cerr << "BSPar_benders_milp_cross.txt is not a BlockSolverConfig"
+              << std::endl;
+    std::exit( 1 );
+    }
+
+   bsc->apply( root_x );
+   auto & slvrs = root_x->get_registered_solvers();
+   auto sb = slvrs.front();
+   auto sm = slvrs.back();
+
+   sb->compute( false );
+   const double x_b1 = sb->get_lb();
+   sm->compute( false );
+   const double x_m1 = sm->get_lb();
+   sb->compute( false );
+   const double x_b2 = sb->get_lb();
+   sm->compute( false );
+   const double x_m2 = sm->get_lb();
+
+   bsc->clear();
+   bsc->apply( root_x );
+   delete bsc;
+   delete root_x;
+
+   const bool ok_x = ( rel( ref2 , x_b1 ) <= tol ) &&
+                     ( rel( ref2 , x_m1 ) <= tol ) &&
+                     ( rel( ref2 , x_b2 ) <= tol ) &&
+                     ( rel( ref2 , x_m2 ) <= tol );
+   ok_r = ok_r && ok_x;
+
+   std::cout << "the two together: Benders = " << x_b1 << " , " << x_b2
+             << "   :MILPSolver = " << x_m1 << " , " << x_m2 << "   ref = "
+             << ref2 << ( ok_x ? "   -> OK" : "   -> FAIL" ) << std::endl;
+   }
+
  // ----- compare ( optimality-cut cases, the supported ones ) ------------- #
  const double err = rel( ref , ben );
  const double err2 = rel( ref , ben2 );
@@ -814,7 +888,7 @@ int main( void )
 	       && ( rel( ref2 , ben_s2 ) <= tol );
  std::cout << "2-scenario: " << ( ok2 ? "-> OK" : "-> FAIL" ) << std::endl;
 
- const bool ok = ok1 && ok2 && ok_ns && ok_ng && ok_k && ok_u;
+ const bool ok = ok1 && ok2 && ok_ns && ok_ng && ok_k && ok_u && ok_r;
 
  delete root_s2;
  delete root_m2;

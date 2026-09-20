@@ -34,7 +34,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   approximately feasible for its dual give a cut that is only approximately
   valid, which shows up as a master value above the optimum
 
+- `int_BDSlv_Restore`, which gives the Block back as it was at the end of each
+  compute(): the complicating Variable return to the Constraint they were
+  taken out of, with the coefficient and the sides they had, and the master
+  the Block was grafted into is disposed of. This is what lets another Solver
+  be attached to the same Block, i.e., what a cross-check in a
+  BlockSolverConfig is made of; what it costs is the reformulation, paid at
+  every compute() rather than once, and the cuts, which are pieces of the
+  master and go with it
+
 ### Changed
+
+- taking the complicating Variable out of the Constraint of a subproblem, and
+  putting them back, issues no Modification: the Solver of the subproblem is
+  attached after the reformulation and reads it as it is then, while a Solver
+  of the Block that was there before would be told of a change that is undone
+  before anything is asked of it, and would rebuild its model out of the two
+  halves of it. What the Modification did besides telling, i.e., the
+  registration of the Constraint among the ones the Variable is active in, is
+  now done explicitly
 
 ### Fixed
 
