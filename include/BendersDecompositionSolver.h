@@ -945,6 +945,10 @@ class BendersDecompositionSolver : public CDASolver
  /// the core point the Pareto-optimal cuts are generated at, in master order
  std::vector< double > v_core;
 
+ /// the epigraph part of that core point, one per subproblem, which a
+ /// unified cut needs and an ordinary one does not
+ std::vector< double > v_core_eta;
+
  /// the number of cuts added to the MILP master
  long f_cuts = 0;
 

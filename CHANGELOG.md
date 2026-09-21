@@ -58,6 +58,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and it is empty exactly when a violated row is one that x does not reach,
   i.e., when no subproblem is feasible for any x
 
+- the Pareto-optimal cut of Papadakos is separated for a unified cut too,
+  `int_BDSlv_Pareto` having had no effect on it before and having said so
+  nowhere: the separation problem is solved at the core point as well as at
+  the incumbent, and the cut it gives is added whether or not it is violated,
+  it being generated at a point that has nothing to do with the incumbent.
+  What it is for is that the separation problem of a unified cut has an
+  optimal face with more than one vertex, so which supporting half-space
+  comes out depends on the algorithm that solves it, and separating at an
+  interior point is what chooses among them. On the instances measured it
+  does not pay, the round costing twice what it costs without it
+
 - `int_BDSlv_Restore`, which gives the Block back as it was at the end of each
   compute(): the complicating Variable return to the Constraint they were
   taken out of, with the coefficient and the sides they had, and the master

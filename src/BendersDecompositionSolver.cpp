@@ -1460,10 +1460,37 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
  /* One round of separation of the unified cuts: it returns how many have been
   * added, zero saying that the incumbent is in the epigraph of every value
-  * function and the master is therefore the problem. */
+  * function and the master is therefore the problem.
+  *
+  * With at_core the separation is done at the core point instead, which is
+  * the Pareto-optimal cut of Papadakos read for a cut that carries the
+  * epigraph Variable too [see cut_strengthening_type]: the separation
+  * problem of a unified cut has, on the instances measured, an optimal face
+  * with more than one vertex, so which supporting half-space comes out
+  * depends on the algorithm that solves it, and separating at an interior
+  * point is what chooses among them. The cut is added whether or not it is
+  * violated, it being generated at a point that has nothing to do with the
+  * incumbent. */
 
- auto separate_unified = [ & ]( int & status ) -> Index {
+ auto separate_unified = [ & ]( int & status , bool at_core = false )
+                                                               -> Index {
   Index added = 0;
+
+  std::vector< double > x_inc;
+  std::vector< double > eta_inc;
+
+  if( at_core ) {
+   x_inc.resize( nx );
+   eta_inc.resize( K );
+   for( Index i = 0 ; i < nx ; ++i ) {
+    x_inc[ i ] = v_x[ i ]->get_value();
+    v_x[ i ]->set_value( v_core[ i ] );
+    }
+   for( Index k = 0 ; k < K ; ++k ) {
+    eta_inc[ k ] = (*v_eta)[ k ].get_value();
+    (*v_eta)[ k ].set_value( v_core_eta[ k ] );
+    }
+   }
 
   for( Index k = 0 ; k < K ; ++k ) {
    auto bf = v_BF1[ k ];
@@ -1489,7 +1516,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
                               std::to_string( k ) ) );
 
    const double viol = bf->get_value();
-   if( viol <= 0 )   // the incumbent is in the epigraph
+   if( ( ! at_core ) && ( viol <= 0 ) )   // the incumbent is in the epigraph
     continue;
 
    std::vector< double > g( nx + 1 , 0 );
@@ -1511,11 +1538,27 @@ int BendersDecompositionSolver::solve_MILP_master( void )
      xs = std::max( xs , std::abs( v_x[ i ]->get_value() ) );
      }
 
-   if( ( cs == 0 ) || ( viol <= tol * cs * std::max( 1.0 , xs ) ) )
+   if( ( ! at_core ) &&
+       ( ( cs == 0 ) || ( viol <= tol * cs * std::max( 1.0 , xs ) ) ) )
     continue;
 
    add_unified_cut( & (*v_eta)[ k ] , g , bf->get_linearization_constant() );
    ++added;
+   }
+
+  /* The core point is then moved towards the incumbent, so that it keeps
+   * track of where the master is going, and the incumbent is put back where
+   * the master solver left it. */
+
+  if( at_core ) {
+   for( Index i = 0 ; i < nx ; ++i ) {
+    v_core[ i ] += f_core_move * ( x_inc[ i ] - v_core[ i ] );
+    v_x[ i ]->set_value( x_inc[ i ] );
+    }
+   for( Index k = 0 ; k < K ; ++k ) {
+    v_core_eta[ k ] += f_core_move * ( eta_inc[ k ] - v_core_eta[ k ] );
+    (*v_eta)[ k ].set_value( eta_inc[ k ] );
+    }
    }
 
   return( added );
@@ -1696,6 +1739,11 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   v_core.resize( nx );
   for( Index i = 0 ; i < nx ; ++i )
    v_core[ i ] = v_x[ i ]->get_value();
+
+  // the core point of a unified cut has an epigraph component too, the cut
+  // being a cut in ( x , eta )
+  if( f_unified != eNoUnified )
+   v_core_eta.assign( v_eta->size() , 0 );
   }
 
  int status = kOK;
@@ -1715,15 +1763,24 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   /* The unified cuts are separated on their own: one problem per subproblem,
    * telling feasibility and optimality apart by itself, hence neither the
-   * feasibility cuts nor the aggregation nor the Pareto ones have anything
-   * to do here. */
+   * feasibility cuts nor the aggregation have anything to do here. The
+   * Pareto ones do: the separation problem of a unified cut has an optimal
+   * face with more than one vertex, and a round at the core point is what
+   * chooses among them. */
 
   if( f_unified != eNoUnified ) {
    int st = kOK;
-   const Index added = separate_unified( st );
+   Index added = separate_unified( st );
 
    if( ( st != kOK ) && ( st != kLowPrecision ) )
     return( st );
+
+   if( f_pareto == ePapadakos ) {
+    added += separate_unified( st , true );
+
+    if( ( st != kOK ) && ( st != kLowPrecision ) )
+     return( st );
+    }
 
    if( added )
     continue;
