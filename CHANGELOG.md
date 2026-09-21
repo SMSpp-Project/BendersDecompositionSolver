@@ -34,6 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   approximately feasible for its dual give a cut that is only approximately
   valid, which shows up as a master value above the optimum
 
+- the deepest normalization of that same cut, the third value of
+  `int_BDSlv_Unified`, as Hosseini and Turner do: what is bounded is not each
+  multiplier but the cut they yield, so that among the half-spaces supporting
+  the epigraph the one farthest from the incumbent is taken, and there is no
+  cost of a slack to choose. A bound on the coefficients of the cut is a bound
+  on an image of the multipliers, hence not something the costs of the slacks
+  can write; what it is, in the problem those slacks live in, is their
+  replacement by a displacement of the master point, the coupling Constraint
+  and the epigraph inequality receiving the columns through which ( x , eta )
+  reaches their sides and the Objective being the l1 norm of that
+  displacement. The value of the separation problem is then how far the
+  incumbent is from the epigraph rather than how much the rows are violated,
+  and it is empty exactly when a violated row is one that x does not reach,
+  i.e., when no subproblem is feasible for any x
+
 - `int_BDSlv_Restore`, which gives the Block back as it was at the end of each
   compute(): the complicating Variable return to the Constraint they were
   taken out of, with the coefficient and the sides they had, and the master

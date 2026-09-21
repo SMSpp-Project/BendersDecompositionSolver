@@ -995,12 +995,23 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
  sub->for_each_constraint_group( [ & scan ]( const BaseGroup & group ) {
    group.for_each_as< FRowConstraint >( scan ); } );
 
- // one slack per side, since either of them can be the violated one
- auto sl = new std::vector< ColVariable >( 2 * cpl.size() );
+ /* The deepest cut bounds the coefficients of the cut rather than the
+  * multipliers, which is a bound on an image of them: what that is, here, is
+  * the displacement of ( x , eta ) that the rows are allowed instead of the
+  * violation the slacks allow [see unified_cut_type]. Each column of the
+  * mapping therefore gets a pair of nonnegative Variable, the positive and
+  * the negative part of the displacement along it, and the sum of the pairs
+  * is the Objective. */
+
+ const bool deepest = ( f_unified == eDeepest );
+ const Index nx = v_x.size();
+
+ auto sl = new std::vector< ColVariable >( deepest ? 2 * ( nx + 1 )
+                                                   : 2 * cpl.size() );
  for( auto & s : *sl )
   s.is_positive( true , eNoMod );
 
- rep->add_static_variable( *sl , "s" );
+ rep->add_static_variable( *sl , deepest ? "d" : "s" );
 
  BendersBFunction::ConstraintVector cns;
  BendersBFunction::MultiVector A1;
@@ -1022,8 +1033,9 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
   if( ! lf )
    continue;
 
-  // the cost of the slacks of this row [see phase_one_weight_type]
-  if( f_p1_weights == eRowNormWeights ) {
+  // the cost of the slacks of this row [see phase_one_weight_type]; the
+  // deepest cut has no slacks, hence no cost of them to choose
+  if( ( ! deepest ) && ( f_p1_weights == eRowNormWeights ) ) {
    double n2 = 0;
    for( Index j = 0 ; j < lf->get_num_active_var() ; ++j )
     n2 += lf->get_coefficient( j ) * lf->get_coefficient( j );
@@ -1041,11 +1053,25 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
    * it: the Constraint registers itself with a Variable coming in only when
    * it receives it, and a Solver building its model by columns reads a
    * Variable's rows from that registration, so a slack added without it
-   * would sit in the row and be left out of the model. */
-  if( lhs )
-   lf->add_variable( & (*sl)[ 2 * i ] , 1 );
-  if( rhs )
-   lf->add_variable( & (*sl)[ 2 * i + 1 ] , -1 );
+   * would sit in the row and be left out of the model.
+   *
+   * The displacement of the deepest cut goes in the same way and through the
+   * row of the mapping: moving x by d moves the side of this row by A_i d,
+   * which on the other side of it is - A_i d, and both sides move together,
+   * a displacement being a displacement and not a violation. */
+  if( deepest )
+   for( Index j = 0 ; j < A[ i ].size() ; ++j ) {
+    if( A[ i ][ j ] == 0 )
+     continue;
+    lf->add_variable( & (*sl)[ 2 * j ]     , - A[ i ][ j ] );
+    lf->add_variable( & (*sl)[ 2 * j + 1 ] ,   A[ i ][ j ] );
+    }
+  else {
+   if( lhs )
+    lf->add_variable( & (*sl)[ 2 * i ] , 1 );
+   if( rhs )
+    lf->add_variable( & (*sl)[ 2 * i + 1 ] , -1 );
+   }
 
   cp->set_lhs( lhs ? orig[ i ]->get_lhs() : - Inf< double >() , eNoMod );
   cp->set_rhs( rhs ? orig[ i ]->get_rhs() : Inf< double >() , eNoMod );
@@ -1108,13 +1134,22 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
                                  "Objective in sub-Block " +
                                  std::to_string( v_sub[ k ] ) ) );
 
-  auto s0v = new std::vector< ColVariable >( 1 );
-  s0 = & s0v->front();
-  s0->is_positive( true , eNoMod );
-  rep->add_static_variable( *s0v , "s0" );
-
   LinearFunction::v_coeff_pair cp( ocp );
-  cp.emplace_back( s0 , -1 );     // the slack helps the <= side
+
+  if( deepest ) {
+   // eta reaches this row through the last column of the mapping, so its
+   // displacement is the pair of that column
+   cp.emplace_back( & (*sl)[ 2 * nx ]     , -1 );
+   cp.emplace_back( & (*sl)[ 2 * nx + 1 ] ,  1 );
+   }
+  else {
+   auto s0v = new std::vector< ColVariable >( 1 );
+   s0 = & s0v->front();
+   s0->is_positive( true , eNoMod );
+   rep->add_static_variable( *s0v , "s0" );
+
+   cp.emplace_back( s0 , -1 );    // the slack helps the <= side
+   }
 
   auto epiv = new std::vector< FRowConstraint >( 1 );
   auto epi = & epiv->front();
@@ -1135,7 +1170,10 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
   sides1.push_back( BendersBFunction::eRHS );
   }
 
- // the total weighted violation, which is what the phase one minimizes
+ /* The total weighted violation, which is what the phase one minimizes; for
+  * the deepest cut the same sum is the l1 norm of the displacement, every
+  * pair costing one, hence the distance of ( x , eta ) from the epigraph. */
+
  auto olf = new LinearFunction();
  for( Index j = 0 ; j < sl->size() ; ++j )
   olf->add_variable( & (*sl)[ j ] , w[ j ] , eNoMod );
@@ -1150,7 +1188,7 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
  rep->set_objective( obj , eNoMod );
 
  BendersBFunction::VarVector vx1( v_x );
- if( s0 )   // the unified cut is a cut in ( x , eta )
+ if( f_unified != eNoUnified )   // the unified cut is a cut in ( x , eta )
   vx1.push_back( & (*v_eta)[ k ] );
 
  v_phase1[ k ] = rep;
@@ -1399,6 +1437,12 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   for( Index k = 0 ; k < K ; ++k ) {
    auto bf = v_BF1[ k ];
+
+   /* An empty separation problem is an answer and not a failure when the
+    * normalization is the deepest one: what it says is that no displacement
+    * of ( x , eta ) makes the subproblem consistent, i.e., that the
+    * subproblem has no solution for any x, hence that (B) has none. The
+    * status travels up as it comes. */
 
    const int st = bf->compute();
    if( ( st != kOK ) && ( st != kLowPrecision ) ) {

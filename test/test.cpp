@@ -679,12 +679,27 @@ int main( void )
   ok_ns = ok_ns && ( rel( ref4 , v_u4 ) <= tol );
   delete root_u4;
 
+  /* The same cut normalized on its own coefficients rather than on the
+   * slacks, which is the deepest one: here there is nothing to set, the
+   * separation problem measuring how far the incumbent is from the epigraph
+   * instead of how much the rows are violated. */
+
+  auto root_d4 = build_structured( false , 4 );
+  int st_d4;
+  long it_d4 = 0 , ct_d4 = 0;
+  const double v_d4 = solve_from_config( root_d4 ,
+					 "BSPar_benders_milp_deepest.txt" ,
+					 st_d4 , & it_d4 , & ct_d4 );
+  ok_ns = ok_ns && ( rel( ref4 , v_d4 ) <= tol );
+  delete root_d4;
+
   std::cout << "4-scenario, no slack: ref = " << ref4 << "   Farkas = "
             << v_f4 << " ( " << it_f4 << " rounds , " << ct_f4
             << " cuts )   phase one = " << v_14 << " ( " << it_14
             << " rounds , " << ct_14 << " cuts )   unified = " << v_u4
             << " ( " << it_u4 << " rounds , " << ct_u4 << " cuts )"
-            << std::endl;
+            << "   deepest = " << v_d4 << " ( " << it_d4 << " rounds , "
+            << ct_d4 << " cuts )" << std::endl;
   delete root_f4;
   delete root_14;
 

@@ -390,7 +390,8 @@ class BendersDecompositionSolver : public CDASolver
   * and makes the cut of the phase one independent of how the rows are
   * scaled: it is the same as scaling every coupling row to unit norm and
   * then giving its slacks unit costs. A row with no coefficients keeps its
-  * unit cost. */
+  * unit cost. The deepest cut [see unified_cut_type] has no slacks, hence
+  * nothing here applies to it. */
 
  enum phase_one_weight_type {
   eUnitWeights    = 0 ,  ///< every slack costs one
@@ -455,11 +456,34 @@ class BendersDecompositionSolver : public CDASolver
   * separates no cut is confirmed by evaluating the value functions
   * themselves, which is what leaves the solution of each subproblem where
   * map_back_solution() reads it from anyway, and the loop goes on if one of
-  * them turns out to be above its epigraph Variable after all. */
+  * them turns out to be above its epigraph Variable after all.
+  *
+  * A normalization that needs no weight at all is eDeepest, where what is
+  * bounded is not each multiplier but the cut it yields: asking
+  * \f$ \| ( \pi^{\top} F , \pi_0 ) \|_{\infty} \leq 1 \f$ and maximizing the
+  * violation selects, among the half-spaces that support the epigraph, the
+  * one whose \f$ \ell_1 \f$ distance from \f$ ( \bar{x} , \bar{\eta} ) \f$ is
+  * largest, and that distance is the \f$ \ell_1 \f$ distance of the point
+  * from the epigraph itself. A bound on the coefficients of the cut is a
+  * bound on an image of the multipliers rather than on the multipliers, so it
+  * cannot be written as costs of the slacks; what it is, in the problem the
+  * slacks live in, is their replacement by a displacement of the master
+  * point. The coupling Constraint and the epigraph inequality get, in place
+  * of a slack, the columns through which \f$ ( x , \eta ) \f$ reaches their
+  * sides, so that a solution of the separation problem moves the point rather
+  * than violating the rows, and the Objective is the \f$ \ell_1 \f$ norm of
+  * that displacement: its value is how far the point has to move to become a
+  * point of the epigraph, its linearization is the cut, and the multipliers
+  * are bounded by construction, so there is nothing to tune. What it costs is
+  * that the separation problem can be empty, which happens when a violated
+  * row is one that \f$ x \f$ does not reach: no displacement mends it, hence
+  * no subproblem is feasible for any \f$ x \f$, and the subproblem is
+  * reported as such rather than answered with a cut. */
 
  enum unified_cut_type {
   eNoUnified = 0 ,  ///< feasibility and optimality cuts, separately
-  eUnified   = 1    ///< one cut for both, out of the phase one
+  eUnified   = 1 ,  ///< one cut for both, out of the phase one
+  eDeepest   = 2    ///< the same, normalized on the cut instead of the slacks
   };
 
 /*--------------------------------------------------------------------------*/
@@ -623,7 +647,8 @@ class BendersDecompositionSolver : public CDASolver
   ///< how far the core point moves towards the incumbent, in [ 0 , 1 ]
 
   dbl_BDSlv_EpiWeight ,
-  ///< cost of the slack of the epigraph inequality in the unified cut
+  ///< cost of the slack of the epigraph inequality in the unified cut, the
+  ///< deepest one having no slack to give a cost to
 
   dblLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
