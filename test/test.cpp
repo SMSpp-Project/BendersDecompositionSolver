@@ -693,13 +693,27 @@ int main( void )
   ok_ns = ok_ns && ( rel( ref4 , v_d4 ) <= tol );
   delete root_d4;
 
+  /* The same cut with the normalization written as the literature writes it,
+   * one equation over the multipliers in place of a bound on each of them,
+   * and with the weights of the static cut of Brandenberg and Stursberg. */
+
+  auto root_s4 = build_structured( false , 4 );
+  int st_s4;
+  long it_s4 = 0 , ct_s4 = 0;
+  const double v_s4 = solve_from_config( root_s4 ,
+					 "BSPar_benders_milp_static.txt" ,
+					 st_s4 , & it_s4 , & ct_s4 );
+  ok_ns = ok_ns && ( rel( ref4 , v_s4 ) <= tol );
+  delete root_s4;
+
   std::cout << "4-scenario, no slack: ref = " << ref4 << "   Farkas = "
             << v_f4 << " ( " << it_f4 << " rounds , " << ct_f4
             << " cuts )   phase one = " << v_14 << " ( " << it_14
             << " rounds , " << ct_14 << " cuts )   unified = " << v_u4
             << " ( " << it_u4 << " rounds , " << ct_u4 << " cuts )"
             << "   deepest = " << v_d4 << " ( " << it_d4 << " rounds , "
-            << ct_d4 << " cuts )" << std::endl;
+            << ct_d4 << " cuts )   static = " << v_s4 << " ( " << it_s4
+            << " rounds , " << ct_s4 << " cuts )" << std::endl;
   delete root_f4;
   delete root_14;
 

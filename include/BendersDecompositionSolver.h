@@ -391,11 +391,36 @@ class BendersDecompositionSolver : public CDASolver
   * scaled: it is the same as scaling every coupling row to unit norm and
   * then giving its slacks unit costs. A row with no coefficients keeps its
   * unit cost. The deepest cut [see unified_cut_type] has no slacks, hence
-  * nothing here applies to it. */
+  * nothing here applies to it.
+  *
+  * Both of those bound each multiplier on its own, which is the normalization
+  * \f$ \pi \leq w \f$: the separation problem then ranges over a box. The
+  * literature writes it instead as the single equation
+  * \f$ \tilde{\omega}^{\top} \pi + \tilde{\omega}_0 \pi_0 = 1 \f$, which is a
+  * simplex and not a box, and eStaticBSWeights is that: one slack for all the
+  * rows rather than one per row, entering each of them with the weight of
+  * that row, so that the column of the slack is the equation and its cost is
+  * the one of the separation problem. The weights are those of the static cut
+  * of Brandenberg and Stursberg, \f$ ( \tilde{\omega} , \tilde{\omega}_0 ) =
+  * ( G \mathbf{1} , 1 ) \f$, i.e., each coupling row is weighted by the sum
+  * of the row that the affine mapping writes into its side and the epigraph
+  * inequality by one, which is what makes the cut support the epigraph: the
+  * cuts of the box normalization are not guaranteed to, and this is the
+  * property the two of them do not share.
+  *
+  * What it costs is that a row whose weight is zero cannot be relaxed at all,
+  * one slack being all there is: the separation problem is then empty rather
+  * than answered, exactly as the deepest one is, and the subproblem is
+  * reported as having no solution for any \f$ x \f$. A row that the mapping
+  * does not reach weighs zero by construction, which is intended, since a
+  * violation of it is not something \f$ x \f$ can mend; a row it does reach
+  * can weigh zero by cancellation, which is not, and is the reason to look at
+  * the weights of a model before choosing this normalization over the box. */
 
  enum phase_one_weight_type {
-  eUnitWeights    = 0 ,  ///< every slack costs one
-  eRowNormWeights = 1    ///< the slacks of a row cost 1 / the norm of it
+  eUnitWeights     = 0 ,  ///< every slack costs one
+  eRowNormWeights  = 1 ,  ///< the slacks of a row cost 1 / the norm of it
+  eStaticBSWeights = 2    ///< one slack for all, weighted by the row sums
   };
 
 /*--------------------------------------------------------------------------*/

@@ -1003,11 +1003,19 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
   * the negative part of the displacement along it, and the sum of the pairs
   * is the Objective. */
 
+ /* The normalization of the literature is one equation and not a box, and
+  * what that is, here, is one slack for all the rows instead of one per row:
+  * the column of that slack is the equation, the weight it enters each row
+  * with is the coefficient of that row in it, and its cost is the Objective
+  * [see phase_one_weight_type]. */
+
  const bool deepest = ( f_unified == eDeepest );
+ const bool oneslack = ( ! deepest ) && ( f_p1_weights == eStaticBSWeights );
  const Index nx = v_x.size();
 
- auto sl = new std::vector< ColVariable >( deepest ? 2 * ( nx + 1 )
-                                                   : 2 * cpl.size() );
+ auto sl = new std::vector< ColVariable >( deepest  ? 2 * ( nx + 1 ) :
+                                           oneslack ? 1
+                                                    : 2 * cpl.size() );
  for( auto & s : *sl )
   s.is_positive( true , eNoMod );
 
@@ -1034,7 +1042,8 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
    continue;
 
   // the cost of the slacks of this row [see phase_one_weight_type]; the
-  // deepest cut has no slacks, hence no cost of them to choose
+  // deepest cut has no slacks, hence no cost of them to choose, and the
+  // single-slack one has a weight per row in place of a cost per row
   if( ( ! deepest ) && ( f_p1_weights == eRowNormWeights ) ) {
    double n2 = 0;
    for( Index j = 0 ; j < lf->get_num_active_var() ; ++j )
@@ -1058,7 +1067,13 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
    * The displacement of the deepest cut goes in the same way and through the
    * row of the mapping: moving x by d moves the side of this row by A_i d,
    * which on the other side of it is - A_i d, and both sides move together,
-   * a displacement being a displacement and not a violation. */
+   * a displacement being a displacement and not a violation.
+   *
+   * The single slack goes in with the weight of the row, the sum of the row
+   * of the mapping, taken in absolute value: what the equation asks is that
+   * the multipliers weigh one all together, so a negative weight would not
+   * be an equation over a simplex. A row that weighs zero does not get it,
+   * and is therefore a row that nothing can relax. */
   if( deepest )
    for( Index j = 0 ; j < A[ i ].size() ; ++j ) {
     if( A[ i ][ j ] == 0 )
@@ -1066,12 +1081,22 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
     lf->add_variable( & (*sl)[ 2 * j ]     , - A[ i ][ j ] );
     lf->add_variable( & (*sl)[ 2 * j + 1 ] ,   A[ i ][ j ] );
     }
-  else {
-   if( lhs )
-    lf->add_variable( & (*sl)[ 2 * i ] , 1 );
-   if( rhs )
-    lf->add_variable( & (*sl)[ 2 * i + 1 ] , -1 );
-   }
+  else
+   if( oneslack ) {
+    double om = 0;
+    for( auto a : A[ i ] )
+     om += a;
+    om = std::abs( om );
+
+    if( om > 0 )
+     lf->add_variable( & (*sl)[ 0 ] , lhs ? om : - om );
+    }
+   else {
+    if( lhs )
+     lf->add_variable( & (*sl)[ 2 * i ] , 1 );
+    if( rhs )
+     lf->add_variable( & (*sl)[ 2 * i + 1 ] , -1 );
+    }
 
   cp->set_lhs( lhs ? orig[ i ]->get_lhs() : - Inf< double >() , eNoMod );
   cp->set_rhs( rhs ? orig[ i ]->get_rhs() : Inf< double >() , eNoMod );
@@ -1142,14 +1167,19 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
    cp.emplace_back( & (*sl)[ 2 * nx ]     , -1 );
    cp.emplace_back( & (*sl)[ 2 * nx + 1 ] ,  1 );
    }
-  else {
-   auto s0v = new std::vector< ColVariable >( 1 );
-   s0 = & s0v->front();
-   s0->is_positive( true , eNoMod );
-   rep->add_static_variable( *s0v , "s0" );
+  else
+   if( oneslack )
+    // the weight of this row in the equation is the omega_0 of the static
+    // cut, which is one
+    cp.emplace_back( & (*sl)[ 0 ] , -1 );
+   else {
+    auto s0v = new std::vector< ColVariable >( 1 );
+    s0 = & s0v->front();
+    s0->is_positive( true , eNoMod );
+    rep->add_static_variable( *s0v , "s0" );
 
-   cp.emplace_back( s0 , -1 );    // the slack helps the <= side
-   }
+    cp.emplace_back( s0 , -1 );   // the slack helps the <= side
+    }
 
   auto epiv = new std::vector< FRowConstraint >( 1 );
   auto epi = & epiv->front();
@@ -1438,10 +1468,12 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   for( Index k = 0 ; k < K ; ++k ) {
    auto bf = v_BF1[ k ];
 
-   /* An empty separation problem is an answer and not a failure when the
-    * normalization is the deepest one: what it says is that no displacement
-    * of ( x , eta ) makes the subproblem consistent, i.e., that the
-    * subproblem has no solution for any x, hence that (B) has none. The
+   /* An empty separation problem is an answer and not a failure for the
+    * normalizations that do not give every row something of its own to be
+    * relaxed by: with the deepest one, what it says is that no displacement
+    * of ( x , eta ) makes the subproblem consistent, and with the single
+    * slack that the violated row is one the slack does not reach. Either
+    * way, no subproblem is feasible for any x, hence (B) is not, and the
     * status travels up as it comes. */
 
    const int st = bf->compute();

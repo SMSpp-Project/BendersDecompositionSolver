@@ -13,7 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is the normalization that selects its cut: every slack costing one, as
   before and by default, or the slacks of each coupling row costing the
   inverse of the 2-norm of its coefficients, which makes the cut independent
-  of how the rows are scaled
+  of how the rows are scaled, or the one normalization of the literature that
+  is an equation over the multipliers rather than a bound on each of them,
+  which in the problem the slacks live in is one slack for all the rows in
+  place of one per row, entering each of them with the sum of the row the
+  mapping writes into its side and the epigraph inequality with one: those are
+  the weights of the static cut of Brandenberg and Stursberg, whose property
+  is that the cut supports the epigraph, which the cuts of the bound are not
+  guaranteed to do. A row that weighs zero is then a row nothing can relax,
+  so the separation problem can be empty, and what that says is that no
+  subproblem is feasible for any x
 
 - `int_BDSlv_Unified`, which separates one cut for both feasibility and
   optimality, as Cornuejols and Lemarechal, Fischetti, Salvagnin and Zanette
