@@ -553,6 +553,7 @@ int main( void )
   * figure to compare, the number of rounds saying little when one round adds
   * one cut and another adds one per subproblem. */
 
+ bool ok_t = true;
  { auto root_m = build_structured( true , 4 );
    auto root_s = build_structured( true , 4 );
    auto root_p = build_structured( true , 4 );
@@ -561,6 +562,22 @@ int main( void )
 
    const double v_m = solve_from_config( root_m , "BSPar_benders_milp.txt" ,
 					 st_m , & it_m , & ct_m );
+
+   /* The subproblems of a round evaluated by threads: the cuts are added in
+    * the order of the subproblems whatever the order the threads finish in,
+    * hence the master, and with it every round, is the one of the sequential
+    * run, which is what is asserted. */
+
+   auto root_t = build_structured( true , 4 );
+   int st_t;
+   long it_t = 0 , ct_t = 0;
+   const double v_t = solve_from_config( root_t , "BSPar_benders_milp_par.txt" ,
+					 st_t , & it_t , & ct_t );
+   ok_t = ( v_t == v_m ) && ( it_t == it_m ) && ( ct_t == ct_m );
+   std::cout << "4-scenario MILP master, 4 threads: " << v_t << " ( " << it_t
+             << " rounds , " << ct_t << " cuts )"
+             << ( ok_t ? "   -> OK" : "   -> FAIL" ) << std::endl;
+   delete root_t;
    const double v_s = solve_from_config( root_s ,
 					 "BSPar_benders_milp_single.txt" ,
 					 st_s , & it_s , & ct_s );
@@ -669,6 +686,24 @@ int main( void )
 					 st_14 , & it_14 , & ct_14 );
   ok_ns = ok_ns && ( rel( ref4 , v_f4 ) <= tol ) &&
                    ( rel( ref4 , v_14 ) <= tol );
+
+  /* The same with the subproblems evaluated by threads, where some of them
+   * are infeasible and their certificates are read inside the threads: the
+   * run has to be the sequential one, round by round. */
+
+  auto root_ft4 = build_structured( false , 4 );
+  int st_ft4;
+  long it_ft4 = 0 , ct_ft4 = 0;
+  const double v_ft4 = solve_from_config( root_ft4 ,
+					  "BSPar_benders_milp_par.txt" ,
+					  st_ft4 , & it_ft4 , & ct_ft4 );
+  const bool ok_ft = ( v_ft4 == v_f4 ) && ( it_ft4 == it_f4 ) &&
+                     ( ct_ft4 == ct_f4 );
+  std::cout << "4-scenario, no slack, 4 threads: " << v_ft4 << " ( "
+            << it_ft4 << " rounds , " << ct_ft4 << " cuts )"
+            << ( ok_ft ? "   -> OK" : "   -> FAIL" ) << std::endl;
+  ok_ns = ok_ns && ok_ft;
+  delete root_ft4;
   /* The unified cut on the same instance, which is where it has something to
    * do: the subproblems are infeasible at some x, and the one cut it
    * separates is a feasibility cut there and an optimality cut elsewhere,
@@ -937,7 +972,8 @@ int main( void )
 	       && ( rel( ref2 , ben_s2 ) <= tol );
  std::cout << "2-scenario: " << ( ok2 ? "-> OK" : "-> FAIL" ) << std::endl;
 
- const bool ok = ok1 && ok2 && ok_ns && ok_ng && ok_k && ok_u && ok_r;
+ const bool ok = ok1 && ok2 && ok_ns && ok_ng && ok_k && ok_u && ok_r &&
+                ok_t;
 
  delete root_s2;
  delete root_m2;

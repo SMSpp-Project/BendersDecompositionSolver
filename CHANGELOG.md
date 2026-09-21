@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `int_BDSlv_MaxThread`, the number of threads that evaluate the subproblems
+  of a round of the MILP regime: the evaluation of one subproblem touches
+  nothing but its own sub-Block, Solver and BendersBFunction, so they run
+  side by side, each writing its cut into a slot of its own, and the cuts are
+  then added to the master one by one in the order of the subproblems, which
+  gives the same master, hence the same rounds and cuts, whatever the number
+  of threads; 1, the default, evaluates them one after the other as before
 - `int_BDSlv_PhaseOneWeights`, the cost of the slacks of the phase one, which
   is the normalization that selects its cut: every slack costing one, as
   before and by default, or the slacks of each coupling row costing the

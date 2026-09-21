@@ -34,9 +34,17 @@
 
 #include <algorithm>
 
+#include <atomic>
+
 #include <cmath>
 
+#include <exception>
+
 #include <functional>
+
+#include <mutex>
+
+#include <thread>
 
 /*--------------------------------------------------------------------------*/
 /*-------------------------- NAMESPACE & USING -----------------------------*/
@@ -66,7 +74,8 @@ static const std::vector< std::string > int_pars_BDSlv = {
  "int_BDSlv_CutNorm" ,
  "int_BDSlv_PhaseOneWeights" ,
  "int_BDSlv_Unified" ,
- "int_BDSlv_Restore"
+ "int_BDSlv_Restore" ,
+ "int_BDSlv_MaxThread"
  };
 
 static const std::vector< std::string > dbl_pars_BDSlv = {
@@ -451,6 +460,7 @@ int BendersDecompositionSolver::get_dflt_int_par( idx_type par ) const
   case( int_BDSlv_PhaseOneWeights ): return( eUnitWeights );
   case( int_BDSlv_Unified ):   return( eNoUnified );
   case( int_BDSlv_Restore ):   return( eKeepReformulation );
+  case( int_BDSlv_MaxThread ): return( 1 );
   default:                     return( CDASolver::get_dflt_int_par( par ) );
   }
  }
@@ -589,6 +599,7 @@ void BendersDecompositionSolver::set_par( idx_type par , int value )
   case( int_BDSlv_PhaseOneWeights ): f_p1_weights = value; return;
   case( int_BDSlv_Unified ):   f_unified = value;    return;
   case( int_BDSlv_Restore ):   f_restore = value;    return;
+  case( int_BDSlv_MaxThread ): f_max_thread = value; return;
   default:                     CDASolver::set_par( par , value );
   }
  }
@@ -644,6 +655,7 @@ int BendersDecompositionSolver::get_int_par( idx_type par ) const
   case( int_BDSlv_PhaseOneWeights ): return( f_p1_weights );
   case( int_BDSlv_Unified ):   return( f_unified );
   case( int_BDSlv_Restore ):   return( f_restore );
+  case( int_BDSlv_MaxThread ): return( f_max_thread );
   default:                     return( CDASolver::get_int_par( par ) );
   }
  }
@@ -1672,6 +1684,72 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   return( int( kOK ) );
   };
 
+ /* Every value function of a round is evaluated at the same point, and the
+  * evaluation of one touches nothing but its own sub-Block, its Solver and
+  * its BendersBFunction: the Modification that write the point into the
+  * sub-Block stop at the BendersBFunction, which ignores them, and the x are
+  * only read. Hence the K evaluations can run in f_max_thread threads, each
+  * writing into its own slot of v_eval, and the cuts are then added one by
+  * one in the order of k, so that the master sees exactly what it sees when
+  * they are evaluated one after the other. */
+
+ struct Evaluation {
+  int status;             ///< what get_cut() returned
+  std::vector< double > g;  ///< the coefficients of the cut
+  double alpha;           ///< its constant
+  bool diagonal;          ///< true for an optimality cut
+  };
+
+ std::vector< Evaluation > v_eval( K );
+
+ auto evaluate_all = [ & ]( void ) {
+  auto one = [ & ]( Index k ) {
+   auto & e = v_eval[ k ];
+   e.g.assign( nx , 0 );
+   e.status = get_cut( k , e.g , e.alpha , e.diagonal );
+   };
+
+  const Index nt = std::min( Index( std::max( f_max_thread , 1 ) ) , K );
+  if( nt <= 1 ) {
+   for( Index k = 0 ; k < K ; ++k )
+    one( k );
+   return;
+   }
+
+  std::atomic< Index > next( 0 );
+  std::exception_ptr error;
+  std::mutex error_mutex;
+
+  auto worker = [ & ]( void ) {
+   for( ; ; ) {
+    const Index k = next++;
+    if( k >= K )
+     return;
+    try {
+     one( k );
+     }
+    catch( ... ) {
+     std::lock_guard< std::mutex > guard( error_mutex );
+     if( ! error )
+      error = std::current_exception();
+     next = K;  // the others stop at their next subproblem
+     return;
+     }
+    }
+   };
+
+  std::vector< std::thread > pool;
+  pool.reserve( nt - 1 );
+  for( Index t = 1 ; t < nt ; ++t )
+   pool.emplace_back( worker );
+  worker();
+  for( auto & th : pool )
+   th.join();
+
+  if( error )
+   std::rethrow_exception( error );
+  };
+
  /* The Pareto-optimal cuts of Papadakos: the very same evaluation, but at the
   * core point rather than at the incumbent, hence one more cut per subproblem
   * and per round. The cut is added whether or not it is violated, it being
@@ -1686,15 +1764,17 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    v_x[ i ]->set_value( v_core[ i ] );
    }
 
-  std::vector< double > g( nx );
   std::vector< double > gs( nx , 0 );
   double as = 0;
   bool all_feasible = true;
 
+  evaluate_all();
+
   for( Index k = 0 ; k < K ; ++k ) {
-   double alpha;
-   bool diagonal;
-   if( get_cut( k , g , alpha , diagonal ) != kOK )
+   auto & g = v_eval[ k ].g;
+   const double alpha = v_eval[ k ].alpha;
+   const bool diagonal = v_eval[ k ].diagonal;
+   if( v_eval[ k ].status != kOK )
     break;
 
    /* The core point is not the incumbent, hence a no-good cut written out of
@@ -1796,12 +1876,14 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
    Index late = 0;
 
-   for( Index k = 0 ; k < K ; ++k ) {
-    std::vector< double > g( nx , 0 );
-    double alpha;
-    bool diagonal;
+   evaluate_all();
 
-    const int st = get_cut( k , g , alpha , diagonal );
+   for( Index k = 0 ; k < K ; ++k ) {
+    auto & g = v_eval[ k ].g;
+    const double alpha = v_eval[ k ].alpha;
+    const bool diagonal = v_eval[ k ].diagonal;
+
+    const int st = v_eval[ k ].status;
     if( st != kOK )
      return( st );
 
@@ -1832,12 +1914,14 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   bool all_feasible = true;
   Index added = 0;
 
-  for( Index k = 0 ; k < K ; ++k ) {
-   std::vector< double > g( nx , 0 );
-   double alpha;
-   bool diagonal;
+  evaluate_all();
 
-   const int st = get_cut( k , g , alpha , diagonal );
+  for( Index k = 0 ; k < K ; ++k ) {
+   auto & g = v_eval[ k ].g;
+   const double alpha = v_eval[ k ].alpha;
+   const bool diagonal = v_eval[ k ].diagonal;
+
+   const int st = v_eval[ k ].status;
    if( st != kOK )
     return( st );
 

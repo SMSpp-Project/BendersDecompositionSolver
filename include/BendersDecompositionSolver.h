@@ -661,6 +661,10 @@ class BendersDecompositionSolver : public CDASolver
   int_BDSlv_Restore ,
   ///< whether (B) is given back after each compute(), a block_handling_type
 
+  int_BDSlv_MaxThread ,
+  ///< threads evaluating the subproblems of a round in the MILP regime; 1
+  ///< (default) evaluates them one after the other
+
   intLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
@@ -978,6 +982,8 @@ class BendersDecompositionSolver : public CDASolver
  int f_unified = eNoUnified;  ///< int_BDSlv_Unified
 
  int f_restore = eKeepReformulation;  ///< int_BDSlv_Restore
+
+ int f_max_thread = 1;  ///< int_BDSlv_MaxThread
 
  double f_epi_weight = 1;  ///< dbl_BDSlv_EpiWeight
 
