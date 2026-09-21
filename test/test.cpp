@@ -2,17 +2,19 @@
 /*------------------------------ File test.cpp -----------------------------*/
 /*--------------------------------------------------------------------------*/
 /** @file
- * Validation test for BendersDecompositionSolver on a small Capacitated
- * Warehouse Location (CWL) / Capacitated Facility Location instance.
+ * Validation test for BendersDecompositionSolver on a small two-stage linear
+ * program that the test writes itself out of AbstractBlock, so that the
+ * module knows of no Block but the ones it builds.
  *
- * Two equivalent models of the same LP are built:
+ * Two equivalent models of the same problem are built:
  *
- * - a *monolithic* AbstractBlock (design Variable y and flow Variable x in
- *   one Block) solved by a :MILPSolver, giving the reference optimum;
+ * - a *monolithic* AbstractBlock (the first-stage Variable y and the
+ *   second-stage Variable x in one Block) solved by a :MILPSolver, giving the
+ *   reference optimum;
  *
- * - a *structured* AbstractBlock (master Block with the design Variable y, one
- *   nested sub-Block with the flow Variable x whose capacity Constraint couple
- *   y) solved by BendersDecompositionSolver.
+ * - a *structured* AbstractBlock (a master Block with y, one nested sub-Block
+ *   with x whose Constraint couple y) solved by
+ *   BendersDecompositionSolver.
  *
  * The test checks that the two optima coincide within a relative tolerance.
  *
@@ -51,7 +53,7 @@ using namespace SMSpp_di_unipi_it;
 /*------------------------------ THE INSTANCE ------------------------------*/
 /*--------------------------------------------------------------------------*/
 
-// a small CWL instance: M locations, N customers
+// a small instance: M first-stage Variable, N second-stage rows
 static const int M = 3;
 static const int N = 4;
 static const double fixed_cost[ M ] = { 5 , 7 , 6 };
@@ -61,8 +63,8 @@ static const double cost[ M ][ N ] = { { 2 , 3 , 4 , 5 } ,
                                        { 4 , 1 , 2 , 3 } ,
                                        { 3 , 4 , 1 , 2 } };
 
-// big-M cost of an unserved-demand slack: it makes the (transportation)
-// subproblem always feasible (so only Benders optimality cuts are needed),
+// big-M cost of the slack of a row: it makes the subproblem always feasible
+// (so only Benders optimality cuts are needed),
 // while being large enough that the slack is never used at the optimum
 static const double BigM = 1e2;
 
@@ -72,14 +74,14 @@ using array_type = boost::multi_array< ColVariable , 2 >;
 /*--------------------------- BLOCK BUILDERS -------------------------------*/
 /*--------------------------------------------------------------------------*/
 
-// add to block the transportation part of one scenario s ( the Variable x[ s ]
-// and slack, its demand and capacity Constraint -- the latter coupling the
-// master Variable y -- ) and its cost terms to obj. With nsub scenarios this
+// add to block the second stage of one scenario s ( the Variable x[ s ] and
+// its slack, the rows they satisfy and the Constraint that couples them to
+// the master Variable y ) and its cost terms to obj. With nsub scenarios this
 // gives a 2-stage Benders structure with nsub subproblems coupled through y
 
-static void add_transport( AbstractBlock * block ,
-			   std::vector< ColVariable > * y , int s ,
-			   bool with_slack , LinearFunction * obj )
+static void add_second_stage( AbstractBlock * block ,
+                              std::vector< ColVariable > * y , int s ,
+                              bool with_slack , LinearFunction * obj )
 {
  const std::string t = std::to_string( s );
  boost::array< array_type::index , 2 > shape = { M , N };
@@ -165,7 +167,7 @@ static AbstractBlock * build_monolithic( bool with_slack = true , int nsub = 1 ,
  for( int i = 0 ; i < M ; ++i )
   f->add_variable( & ( * y )[ i ] , fixed_cost[ i ] );
  for( int s = 0 ; s < nsub ; ++s )
-  add_transport( block , y , s , with_slack , f );
+  add_second_stage( block , y , s , with_slack , f );
 
  auto obj = new FRealObjective( block , f );
  obj->set_sense( Objective::eMin );
@@ -197,7 +199,7 @@ static AbstractBlock * build_structured( bool with_slack = true , int nsub = 1 ,
  for( int s = 0 ; s < nsub ; ++s ) {
   auto sub = new AbstractBlock( root );
   auto sf = new LinearFunction();
-  add_transport( sub , y , s , with_slack , sf );
+  add_second_stage( sub , y , s , with_slack , sf );
   auto sobj = new FRealObjective( sub , sf );
   sobj->set_sense( Objective::eMin );
   sub->set_objective( sobj );
@@ -209,9 +211,10 @@ static AbstractBlock * build_structured( bool with_slack = true , int nsub = 1 ,
 
 /*--------------------------------------------------------------------------*/
 
-/* The same instance, with each scenario built as a tree: the transport
- * Variable of a location, and their cost, live in a sub-Block of the
- * scenario, which keeps the demand and the coupling Constraint. This is the
+/* The same instance, with each scenario built as a tree: the second-stage
+ * Variable that one first-stage Variable couples, and their cost, live in a
+ * sub-Block of the scenario, which keeps the rows and the coupling
+ * Constraint. This is the
  * shape a subproblem has whenever it is a model of its own rather than a bare
  * set of rows, and the Objective it is evaluated with is then the sum of
  * those of the Block it is made of; the separation problems that replicate it
@@ -234,7 +237,8 @@ static AbstractBlock * build_nested( int nsub = 1 )
   const std::string t = std::to_string( s );
   auto sub = new AbstractBlock( root );
 
-  // one sub-Block per location, carrying its Variable and its own cost
+  // one sub-Block per first-stage Variable, carrying the second-stage
+  // Variable it couples and their cost
   std::vector< std::vector< ColVariable > * > x( M );
 
   for( int i = 0 ; i < M ; ++i ) {
@@ -282,7 +286,7 @@ static AbstractBlock * build_nested( int nsub = 1 )
    }
   sub->add_static_constraint( * cap , "capacity" + t );
 
-  // the scenario itself only pays the slacks, the transport cost being in
+  // the scenario itself only pays the slacks, the cost of the second stage being in
   // the Block it is made of
   auto sf = new LinearFunction();
   for( int j = 0 ; j < N ; ++j )
@@ -299,10 +303,10 @@ static AbstractBlock * build_nested( int nsub = 1 )
 
 /*--------------------------------------------------------------------------*/
 
-// a sparse instance: each customer can be served by two locations only, so
-// that an infeasible subproblem has more than one way of being so, i.e., its
-// dual has more than one extreme ray, and the capacity row i, a coupling
-// one, is written multiplied by row_scale[ i ] when scaled is true
+// a sparse instance: each second-stage row is written over two first-stage
+// Variable only, so that an infeasible subproblem has more than one way of
+// being so, i.e., its dual has more than one extreme ray, and the coupling
+// row i is written multiplied by row_scale[ i ] when scaled is true
 
 static AbstractBlock * build_sparse( unsigned seed , bool scaled ,
 				     int nsub = 4 )
@@ -520,7 +524,7 @@ int main( void )
            << std::endl;
 
  // ----- multi-subproblem ( 2 scenarios ): >1 BendersBFunction ------------ #
- // two transportation scenarios coupled through y: BDS builds one
+ // two second-stage scenarios coupled through y: BDS builds one
  // BendersBFunction per scenario, so multi-cut uses two epigraph Variable and
  // single-cut one; all must match the 2-scenario monolithic optimum
  auto mono2 = build_monolithic( true , 2 );
