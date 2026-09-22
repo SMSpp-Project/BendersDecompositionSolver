@@ -1,0 +1,87 @@
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - -  BSPar_benders_milp_static_sl.txt - - - - - - - - - - -
+#
+# A txt description of a BlockSolverConfig for a Block having a single
+# BendersDecompositionSolver attached, in the MILP regime, separating one
+# cut for both feasibility and optimality and normalizing it the way the
+# literature writes it, with one equation over the multipliers in place of a
+# bound on each of them: what that is, in the problem the slacks live in, is
+# one slack for all the rows rather than one per row, entering each of them
+# with the sum of the row the mapping writes into its side and the epigraph
+# inequality with one. Those are the weights of the static cut of
+# Brandenberg and Stursberg, which supports the epigraph, a property the
+# cuts of the bound do not have.
+#
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+BlockSolverConfig     # exact type of the Configuration object
+
+0  # the BlockSolverConfig is not a "differential" one
+
+1  # number of (the names of) Solver in this BlockSolverConfig
+# now all the names of the Solver - - - - - - - - - - - - - - - - - - - - - -
+BendersDecompositionSolver # name of Solver
+
+1  # number of ComputeConfig in this BlockSolverConfig
+
+# now all the ComputeConfig
+# 1st ComputeConfig - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+ComputeConfig # exact type of the ComputeConfig object
+
+0  # f_diff == 0 ==> all non-provided parameters are set to the default value
+   # f_diff == 1 ==> all non-provided parameters are not changed
+
+4  # number of integer parameters
+
+# now all the integer parameters
+int_BDSlv_Regime  1  # 0 = convex master, 1 = MILP master
+int_BDSlv_Unified 1  # 0 = feasibility and optimality cuts, separately,
+                     # 1 = one cut for both, normalized on the slacks,
+                     # 2 = the same, normalized on the cut itself
+int_BDSlv_PhaseOneWeights 2 # 0 = every slack costs one, 1 = the slacks of a
+                     # row cost the inverse of the norm of it, 2 = one slack
+                     # for all, weighted by the sums of the rows
+int_BDSlv_Pareto  2  # 2 = the vertex of the separation problem chosen by
+                     # the perturbation of Sherali and Lunday
+
+1  # number of double parameters
+
+# now all the double parameters
+dbl_BDSlv_ParetoMu  0.1  # step towards the core point
+
+# now all the double parameters
+# [none]
+
+2  # number of string parameters
+
+# now all the string parameters
+str_Bsub_BSCfg  BSPar_sub.txt     # BlockSolverConfig of the subproblems
+str_Mstr_BSCfg  BSPar_master_milp.txt # BlockSolverConfig of the master
+
+0  # number of vector-of-int parameters
+
+# now all the vector-of-int parameters
+# [none]
+
+0  # number of vector-of-double parameters
+
+# now all the vector-of-double parameters
+# [none]
+
+0  # number of vector-of-string parameters
+
+# now all the vector-of-string parameters
+# [none]
+
+# pointer to the "extra" Configuration
+* # [none]
+
+# end of 1st ComputeConfig  - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# end of BlockSolverConfig  - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - -  END BSPar_benders_milp_static_sl.txt - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

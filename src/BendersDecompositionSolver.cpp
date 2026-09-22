@@ -80,7 +80,8 @@ static const std::vector< std::string > int_pars_BDSlv = {
 
 static const std::vector< std::string > dbl_pars_BDSlv = {
  "dbl_BDSlv_CoreMove" ,
- "dbl_BDSlv_EpiWeight"
+ "dbl_BDSlv_EpiWeight" ,
+ "dbl_BDSlv_ParetoMu"
  };
 
 static const std::vector< std::string > vint_pars_BDSlv = {
@@ -472,6 +473,7 @@ double BendersDecompositionSolver::get_dflt_dbl_par( idx_type par ) const
  switch( par ) {
   case( dbl_BDSlv_CoreMove ): return( 0.5 );
   case( dbl_BDSlv_EpiWeight ): return( 1 );
+  case( dbl_BDSlv_ParetoMu ): return( 0.1 );
   default:                    return( CDASolver::get_dflt_dbl_par( par ) );
   }
  }
@@ -611,6 +613,7 @@ void BendersDecompositionSolver::set_par( idx_type par , double value )
  switch( par ) {
   case( dbl_BDSlv_CoreMove ): f_core_move = value; return;
   case( dbl_BDSlv_EpiWeight ): f_epi_weight = value; return;
+  case( dbl_BDSlv_ParetoMu ): f_pareto_mu = value; return;
   default:                    CDASolver::set_par( par , value );
   }
  }
@@ -667,6 +670,7 @@ double BendersDecompositionSolver::get_dbl_par( idx_type par ) const
  switch( par ) {
   case( dbl_BDSlv_CoreMove ):  return( f_core_move );
   case( dbl_BDSlv_EpiWeight ): return( f_epi_weight );
+  case( dbl_BDSlv_ParetoMu ):  return( f_pareto_mu );
   default:                     return( CDASolver::get_dbl_par( par ) );
   }
  }
@@ -772,6 +776,10 @@ void BendersDecompositionSolver::reformulate( void )
   * Variable to exist while the replicas that separate it are built, i.e.,
   * before the master that holds them; and it needs one of them per
   * subproblem, the eta of a subproblem appearing in its own cuts alone. */
+
+ if( ( f_pareto == eSheraliLunday ) && ( f_unified == eNoUnified ) )
+  throw( std::invalid_argument( _prfx + "the cut of Sherali and Lunday is "
+                                "written for the unified cut only" ) );
 
  if( f_unified != eNoUnified ) {
   if( f_regime != eMILPMaster )
@@ -1482,25 +1490,35 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   * depends on the algorithm that solves it, and separating at an interior
   * point is what chooses among them. The cut is added whether or not it is
   * violated, it being generated at a point that has nothing to do with the
-  * incumbent. */
+  * incumbent.
+  *
+  * With perturbed the separation is done instead at the incumbent moved by
+  * dbl_BDSlv_ParetoMu towards the core point, which is the cut of Sherali
+  * and Lunday: one problem per subproblem as without it, whose optimal face
+  * the step reduces to one of the vertices that are optimal at the
+  * incumbent. Being generated elsewhere, the cut is added when it is
+  * violated at the incumbent, which is computed from its coefficients. */
 
- auto separate_unified = [ & ]( int & status , bool at_core = false )
-                                                               -> Index {
+ auto separate_unified = [ & ]( int & status , bool at_core = false ,
+                                bool perturbed = false ) -> Index {
   Index added = 0;
 
   std::vector< double > x_inc;
   std::vector< double > eta_inc;
+  const bool moved = at_core || perturbed;
 
-  if( at_core ) {
+  if( moved ) {
+   const double mu = at_core ? 1 : f_pareto_mu;
    x_inc.resize( nx );
    eta_inc.resize( K );
    for( Index i = 0 ; i < nx ; ++i ) {
     x_inc[ i ] = v_x[ i ]->get_value();
-    v_x[ i ]->set_value( v_core[ i ] );
+    v_x[ i ]->set_value( x_inc[ i ] + mu * ( v_core[ i ] - x_inc[ i ] ) );
     }
    for( Index k = 0 ; k < K ; ++k ) {
     eta_inc[ k ] = (*v_eta)[ k ].get_value();
-    (*v_eta)[ k ].set_value( v_core_eta[ k ] );
+    (*v_eta)[ k ].set_value( eta_inc[ k ] +
+                             mu * ( v_core_eta[ k ] - eta_inc[ k ] ) );
     }
    }
 
@@ -1527,12 +1545,21 @@ int BendersDecompositionSolver::solve_MILP_master( void )
                               "problem of subproblem " +
                               std::to_string( k ) ) );
 
-   const double viol = bf->get_value();
-   if( ( ! at_core ) && ( viol <= 0 ) )   // the incumbent is in the epigraph
+   double viol = bf->get_value();
+   if( ( ! moved ) && ( viol <= 0 ) )   // the incumbent is in the epigraph
     continue;
 
    std::vector< double > g( nx + 1 , 0 );
    bf->get_linearization_coefficients( g.data() , Range( 0 , nx + 1 ) );
+
+   // a cut generated at the perturbed incumbent is judged at the incumbent
+   if( perturbed ) {
+    viol = bf->get_linearization_constant() + g[ nx ] * eta_inc[ k ];
+    for( Index i = 0 ; i < nx ; ++i )
+     viol += g[ i ] * x_inc[ i ];
+    if( viol <= 0 )
+     continue;
+    }
 
    /* How much the cut is violated is not the value of the separation
     * problem: that value is scaled by the multipliers, which the costs of
@@ -1542,12 +1569,14 @@ int BendersDecompositionSolver::solve_MILP_master( void )
     * units of the master and makes the test independent of those costs. */
 
    double cs = std::abs( g[ nx ] );
-   double xs = std::abs( (*v_eta)[ k ].get_value() );
+   double xs = std::abs( perturbed ? eta_inc[ k ]
+                                   : (*v_eta)[ k ].get_value() );
 
    if( cs == 0 )
     for( Index i = 0 ; i < nx ; ++i ) {
      cs = std::max( cs , std::abs( g[ i ] ) );
-     xs = std::max( xs , std::abs( v_x[ i ]->get_value() ) );
+     xs = std::max( xs , std::abs( perturbed ? x_inc[ i ]
+                                             : v_x[ i ]->get_value() ) );
      }
 
    if( ( ! at_core ) &&
@@ -1562,7 +1591,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    * track of where the master is going, and the incumbent is put back where
    * the master solver left it. */
 
-  if( at_core ) {
+  if( moved ) {
    for( Index i = 0 ; i < nx ; ++i ) {
     v_core[ i ] += f_core_move * ( x_inc[ i ] - v_core[ i ] );
     v_x[ i ]->set_value( x_inc[ i ] );
@@ -1815,7 +1844,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
  f_cuts = 0;
  f_rounds = 0;
 
- if( f_pareto == ePapadakos ) {
+ if( ( f_pareto == ePapadakos ) || ( f_pareto == eSheraliLunday ) ) {
   v_core.resize( nx );
   for( Index i = 0 ; i < nx ; ++i )
    v_core[ i ] = v_x[ i ]->get_value();
@@ -1850,7 +1879,8 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   if( f_unified != eNoUnified ) {
    int st = kOK;
-   Index added = separate_unified( st );
+   Index added = separate_unified( st , false ,
+                                   f_pareto == eSheraliLunday );
 
    if( ( st != kOK ) && ( st != kLowPrecision ) )
     return( st );

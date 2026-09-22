@@ -745,6 +745,19 @@ int main( void )
   ok_ns = ok_ns && ( rel( ref4 , v_s4 ) <= tol );
   delete root_s4;
 
+  /* The same static cut, the vertex of its degenerate separation problem
+   * being chosen by the perturbation of Sherali and Lunday [see
+   * cut_strengthening_type]. */
+
+  auto root_l4 = build_structured( false , 4 );
+  int st_l4;
+  long it_l4 = 0 , ct_l4 = 0;
+  const double v_l4 = solve_from_config( root_l4 ,
+					 "BSPar_benders_milp_static_sl.txt" ,
+					 st_l4 , & it_l4 , & ct_l4 );
+  ok_ns = ok_ns && ( rel( ref4 , v_l4 ) <= tol );
+  delete root_l4;
+
   std::cout << "4-scenario, no slack: ref = " << ref4 << "   Farkas = "
             << v_f4 << " ( " << it_f4 << " rounds , " << ct_f4
             << " cuts )   phase one = " << v_14 << " ( " << it_14
@@ -752,7 +765,9 @@ int main( void )
             << " ( " << it_u4 << " rounds , " << ct_u4 << " cuts )"
             << "   deepest = " << v_d4 << " ( " << it_d4 << " rounds , "
             << ct_d4 << " cuts )   static = " << v_s4 << " ( " << it_s4
-            << " rounds , " << ct_s4 << " cuts )" << std::endl;
+            << " rounds , " << ct_s4 << " cuts )   static and Sherali-Lunday = "
+            << v_l4 << " ( " << it_l4 << " rounds , " << ct_l4 << " cuts )"
+            << std::endl;
   delete root_f4;
   delete root_14;
 

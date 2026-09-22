@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `int_BDSlv_Pareto 2`, the unified cut separated once per round at the
+  incumbent moved by `dbl_BDSlv_ParetoMu` (default 0.1) towards the core
+  point, which is the nondominated cut of Sherali and Lunday: the separation
+  problem of the static cut has an optimal face with more than one vertex,
+  and the step chooses among them with one problem per subproblem, where
+  Papadakos takes two; on the four capacity-expansion instances of PyPSA it
+  takes the static cut from 42-73 to 24-56 rounds and from 120-201 s to
+  93-105 s, the multi-cut standard staying the fastest configuration
 - `int_BDSlv_MaxThread`, the number of threads that evaluate the subproblems
   of a round of the MILP regime: the evaluation of one subproblem touches
   nothing but its own sub-Block, Solver and BendersBFunction, so they run
