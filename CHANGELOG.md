@@ -95,6 +95,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- the documentation of the Solver says where the reformulation of the Block
+  is done, what the phases of the algorithm are and what each parameter asks
+  of it, which the header left to whoever read the code
+- whoever links the module keeps it: the classes of a module register
+  themselves in the factory from a static initialiser, and a linker that
+  drops what looks unused takes the registration away with it, so the target
+  now tells whoever links it to keep the symbol that forces the module in,
+  and on ELF, where naming the symbol is not enough, the library as a whole
 - everything that is not about this Solver alone moves to the test suite of
   the Block it is posed on, where the batches of a Block live: the three
   forms of a two-stage stochastic investment problem, the two Benders
