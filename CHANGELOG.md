@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Papadakos takes two; on the four capacity-expansion instances of PyPSA it
   takes the static cut from 42-73 to 24-56 rounds and from 120-201 s to
   93-105 s, the multi-cut standard staying the fastest configuration
+
 - `int_BDSlv_MaxThread`, the number of threads that evaluate the subproblems
   of a round of the MILP regime: the evaluation of one subproblem touches
   nothing but its own sub-Block, Solver and BendersBFunction, so they run
@@ -24,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   then added to the master one by one in the order of the subproblems, which
   gives the same master, hence the same rounds and cuts, whatever the number
   of threads; 1, the default, evaluates them one after the other as before
+
 - `int_BDSlv_PhaseOneWeights`, the cost of the slacks of the phase one, which
   is the normalization that selects its cut: every slack costing one, as
   before and by default, or the slacks of each coupling row costing the
@@ -98,11 +100,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - the documentation of the Solver says where the reformulation of the Block
   is done, what the phases of the algorithm are and what each parameter asks
   of it, which the header left to whoever read the code
+
 - whoever links the module keeps it: the classes of a module register
   themselves in the factory from a static initialiser, and a linker that
   drops what looks unused takes the registration away with it, so the target
   now tells whoever links it to keep the symbol that forces the module in,
   and on ELF, where naming the symbol is not enough, the library as a whole
+
 - everything that is not about this Solver alone moves to the test suite of
   the Block it is posed on, where the batches of a Block live: the three
   forms of a two-stage stochastic investment problem, the two Benders
