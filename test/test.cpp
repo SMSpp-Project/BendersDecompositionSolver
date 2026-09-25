@@ -449,29 +449,6 @@ static double solve_from_config( AbstractBlock * block , const std::string & fn 
  }
 
 /*--------------------------------------------------------------------------*/
-/* The convex regime attaches a BundleSolver to the master, which keeps the
- * subproblems hanging from it as sub-Block; a bundle that wants each of its
- * sub-Block to be a bare function Block refuses it in set_Block(), and so
- * does one that does not carry the required parameters. In either case the
- * case is skipped rather than failed, and the reference value is returned so
- * that the comparisons downstream are satisfied. */
-
-static double solve_by_bundle( AbstractBlock * block , const std::string & fn ,
-			       int & status , bool & ran , double dflt )
-{
- try {
-  const double lb = solve_from_config( block , fn , status );
-  ran = true;
-  return( lb );
-  }
- catch( const std::exception & e ) {
-  std::cout << "Benders(convex): skipped, " << e.what() << std::endl;
-  ran = false;
-  return( dflt );
-  }
- }
-
-/*--------------------------------------------------------------------------*/
 /*--------------------------------- MAIN -----------------------------------*/
 /*--------------------------------------------------------------------------*/
 
@@ -501,12 +478,9 @@ int main( void )
  // ----- Benders, convex regime, configured entirely from file ------------ #
  auto root = build_structured();
  int st = 0;
- bool has_cvx;
- const double ben = solve_by_bundle( root , "BSPar_benders_convex.txt" , st ,
-				     has_cvx , ref );
- if( has_cvx )
-  std::cout << "Benders(convex) status = " << st << "   lb = " << ben
-            << std::endl;
+ const double ben = solve_from_config( root , "BSPar_benders_convex.txt" , st );
+ std::cout << "Benders(convex) status = " << st << "   lb = " << ben
+           << std::endl;
 
  // ----- Benders, MILP regime ( multi-cut ), configured from file --------- #
  auto root2 = build_structured();
@@ -531,19 +505,16 @@ int main( void )
  int dummy;
  const double ref2 = solve_from_config( mono2 , "BSPar_sub.txt" , dummy );
  auto root_c2 = build_structured( true , 2 );
- bool has_cvx2;
- const double ben_c2 = solve_by_bundle( root_c2 , "BSPar_benders_convex.txt" ,
-					dummy , has_cvx2 , ref2 );
+ const double ben_c2 = solve_from_config( root_c2 , "BSPar_benders_convex.txt" ,
+					  dummy );
  auto root_m2 = build_structured( true , 2 );
  const double ben_m2 = solve_from_config( root_m2 , "BSPar_benders_milp.txt" ,
 					  dummy );
  auto root_s2 = build_structured( true , 2 );
  const double ben_s2 = solve_from_config( root_s2 ,
 					  "BSPar_benders_milp_single.txt" , dummy );
- std::cout << "2-scenario: ref = " << ref2;
- if( has_cvx2 )
-  std::cout << "   convex = " << ben_c2;
- std::cout << "   MILP-multi = " << ben_m2 << "   MILP-single = " << ben_s2
+ std::cout << "2-scenario: ref = " << ref2 << "   convex = " << ben_c2
+           << "   MILP-multi = " << ben_m2 << "   MILP-single = " << ben_s2
            << std::endl;
 
  /* ----- how many cuts each variant of the MILP regime takes -------------- #
@@ -975,10 +946,9 @@ int main( void )
  const double err2 = rel( ref , ben2 );
  const double err3 = rel( ref , ben3 );
  const bool ok1 = ( err <= tol ) && ( err2 <= tol ) && ( err3 <= tol );
- std::cout << "1-scenario: monolithic = " << ref;
- if( has_cvx )
-  std::cout << "   convex = " << ben << " (err " << err << ")";
- std::cout << "   MILP-multi = " << ben2 << " (err " << err2 << ")"
+ std::cout << "1-scenario: monolithic = " << ref
+           << "   convex = " << ben << " (err " << err << ")"
+           << "   MILP-multi = " << ben2 << " (err " << err2 << ")"
            << "   MILP-single = " << ben3 << " (err " << err3 << ")"
            << ( ok1 ? "   -> OK" : "   -> FAIL" ) << std::endl;
 
