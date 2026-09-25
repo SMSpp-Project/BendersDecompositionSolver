@@ -195,7 +195,13 @@ namespace SMSpp_di_unipi_it
  *   master is solved by a MILPSolver, with BendersDecompositionSolver driving
  *   the outer cut loop (solve master, evaluate each v^k at the incumbent x,
  *   add the violated cuts, re-solve) until no violated cut remains. This is
- *   the setting of the ManSci18 reference.
+ *   the setting of the ManSci18 reference. A cut is violated when its value
+ *   at the incumbent is above the epigraph Variable, which is the value of
+ *   the function when the subproblem is solved exactly; a Solver that is
+ *   not, e.g., a Lagrangian dual, gives a value above the cut, and the loop
+ *   stops with the master value as lower bound and the values at the
+ *   incumbent as upper one, returning kLowPrecision if they are farther
+ *   apart than dblRelAcc says.
  *
  * In both regimes the BendersBFunction objects are the same; only the master
  * assembly and the loop driver differ. The "inner" solver of the master is
@@ -999,6 +1005,7 @@ class BendersDecompositionSolver : public CDASolver
  double f_core_move = 0.5;  ///< dbl_BDSlv_CoreMove
 
  double f_pareto_mu = 0.1;  ///< dbl_BDSlv_ParetoMu
+ double f_rel_acc = 1e-6;   ///< dblRelAcc, the gap kOK tolerates
 
  int f_cut_norm = eNoNorm;  ///< int_BDSlv_CutNorm
 

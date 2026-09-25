@@ -127,6 +127,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- in the MILP regime a cut is violated when its value at the incumbent is
+  above the epigraph Variable, rather than the value of its subproblem: a
+  subproblem Solver that is not exact, e.g., a Lagrangian dual, gives a value
+  above the cut, which was then found violated again at the same incumbent
+  at every round, and the loop never ended; it now stops with the master
+  value as lower bound and the values at the incumbent as upper one
+  (`get_ub()`), and returns `kLowPrecision` when they are farther apart than
+  `dblRelAcc` (default `1e-6`), which is now read. With exact subproblems the
+  cuts, the rounds and the bounds are the ones they were
+
 - the Solver that `str_Bsub_BSCfg` attaches to the subproblems (and to the
   replicas of their phase one) are recorded, detached and deleted when the
   reformulation is dismantled, before the subproblems are given back; they

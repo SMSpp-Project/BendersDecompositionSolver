@@ -298,8 +298,8 @@ int BendersDecompositionSolver::compute( bool changedvars )
  int status;
 
  if( f_regime == eMILPMaster ) {
+  f_ub = Inf< OFValue >();
   status = solve_MILP_master();
-  f_ub = f_solved ? f_value : Inf< OFValue >();
   }
  else {
   /* In the convex regime the master Solver is a bundle-type one, which drives
@@ -627,6 +627,7 @@ void BendersDecompositionSolver::set_par( idx_type par , double value )
   case( dbl_BDSlv_CoreMove ): f_core_move = value; return;
   case( dbl_BDSlv_EpiWeight ): f_epi_weight = value; return;
   case( dbl_BDSlv_ParetoMu ): f_pareto_mu = value; return;
+  case( dblRelAcc ):          f_rel_acc = value;   return;
   default:                    CDASolver::set_par( par , value );
   }
  }
@@ -684,6 +685,7 @@ double BendersDecompositionSolver::get_dbl_par( idx_type par ) const
   case( dbl_BDSlv_CoreMove ):  return( f_core_move );
   case( dbl_BDSlv_EpiWeight ): return( f_epi_weight );
   case( dbl_BDSlv_ParetoMu ):  return( f_pareto_mu );
+  case( dblRelAcc ):           return( f_rel_acc );
   default:                     return( CDASolver::get_dbl_par( par ) );
   }
  }
@@ -1392,6 +1394,33 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   return( f - eta > tol * std::max( 1.0 , std::abs( f ) ) );
   };
 
+ /* Whether a cut is violated is measured by its value at the incumbent,
+  * not by the value of the function it cuts: the two are the same when the
+  * subproblem is solved exactly, but a Solver that is not exact, e.g., a
+  * Lagrangian dual, gives a value that is an upper estimate and a cut that
+  * touches its lower one, and a cut measured by the former would be found
+  * violated again at the same incumbent, forever. */
+
+ auto at_x = [ & ]( const std::vector< double > & g , double alpha ) {
+  for( Index i = 0 ; i < nx ; ++i )
+   alpha += g[ i ] * v_x[ i ]->get_value();
+  return( alpha );
+  };
+
+ /* When no cut is violated, the master value is a lower bound and the value
+  * functions at the incumbent give an upper one: the two differ only by how
+  * much each value is above its epigraph Variable, which a Solver that is
+  * not exact leaves. The upper bound is recorded, and a gap beyond
+  * dblRelAcc is declared by kLowPrecision rather than hidden by kOK. */
+
+ auto finish = [ & ]( double excess ) {
+  f_solved = true;
+  f_ub = f_value + std::max( excess , 0.0 );
+  if( f_ub - f_value > f_rel_acc * std::max( 1.0 , std::abs( f_value ) ) )
+   return( int( kLowPrecision ) );
+  return( int( kOK ) );
+  };
+
  /* A cut is a Constraint on the master, i.e., eta - g x >= alpha for an
   * optimality one and - g x >= alpha for a feasibility one, the latter
   * having no epigraph Variable since it cuts away an x for which the
@@ -1918,6 +1947,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
     * added and the loop goes on. */
 
    Index late = 0;
+   double excess = 0;   // how much the values are above the epigraph
 
    evaluate_all();
 
@@ -1936,7 +1966,9 @@ int BendersDecompositionSolver::solve_MILP_master( void )
      continue;
      }
 
-    if( violated( v_BF[ k ]->get_value() , (*v_eta)[ k ].get_value() ) ) {
+    const double eta = (*v_eta)[ k ].get_value();
+    excess += v_BF[ k ]->get_value() - eta;
+    if( violated( at_x( g , alpha ) , eta ) ) {
      add_cut( & (*v_eta)[ k ] , g , alpha );
      ++late;
      }
@@ -1945,8 +1977,8 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    if( late )
     continue;
 
-   f_solved = true;
-   return( status );
+   const int cl = finish( excess );
+   return( ( status == kOK ) ? cl : status );
    }
 
   // evaluate each value function at the master solution- - - - - - - - - - -
@@ -1954,6 +1986,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   std::vector< double > gs( nx , 0 );   // the aggregated linearization
   double as = 0;
   double fs = 0;
+  double excess = 0;   // how much the values are above the epigraph
   bool all_feasible = true;
   Index added = 0;
 
@@ -1985,8 +2018,10 @@ int BendersDecompositionSolver::solve_MILP_master( void )
     continue;
     }
 
-   // the cut is violated only if the epigraph Variable is below the value
-   if( violated( fk , (*v_eta)[ k ].get_value() ) ) {
+   // the cut is violated only if the epigraph Variable is below the cut
+   const double eta = (*v_eta)[ k ].get_value();
+   excess += fk - eta;
+   if( violated( at_x( g , alpha ) , eta ) ) {
     add_cut( & (*v_eta)[ k ] , g , alpha );
     ++added;
     }
@@ -1995,15 +2030,18 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   /* The aggregated cut is a valid one only if every subproblem has a value
    * to contribute to it, i.e., if none of them is infeasible. */
 
-  if( ( f_cut_type == eSingleCut ) && all_feasible )
-   if( violated( fs , (*v_eta)[ 0 ].get_value() ) ) {
+  if( ( f_cut_type == eSingleCut ) && all_feasible ) {
+   const double eta = (*v_eta)[ 0 ].get_value();
+   excess = fs - eta;
+   if( violated( at_x( gs , as ) , eta ) ) {
     add_cut( & (*v_eta)[ 0 ] , gs , as );
     ++added;
     }
+   }
 
   if( ! added ) {   // no cut is violated: the master is the problem
-   f_solved = true;
-   return( status );
+   const int cl = finish( excess );
+   return( ( status == kOK ) ? cl : status );
    }
 
   /* The Pareto-optimal cuts come after the ordinary ones, and only when
