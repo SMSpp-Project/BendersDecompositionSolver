@@ -127,6 +127,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- the Solver that `str_Bsub_BSCfg` attaches to the subproblems (and to the
+  replicas of their phase one) are recorded, detached and deleted when the
+  reformulation is dismantled, before the subproblems are given back; they
+  were left attached, so that a `LagrangianDualSolver` solving a subproblem
+  kept its sub-Block in its `LagBFunctions`, and the first Modification of
+  one of them after the `BendersDecompositionSolver` had gone reached a
+  `LagBFunction` that was no longer there
+
 - the pipeline runs the test of this module: the job configured the build with
   this module alone, while the test is built only when a master `Solver`
   (`BundleSolver`) and a subproblem one (a `:MILPSolver`) are there as well, so

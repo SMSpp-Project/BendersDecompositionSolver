@@ -884,7 +884,9 @@ class BendersDecompositionSolver : public CDASolver
   * SimpleConfiguration< std::map< std::string , Configuration * > > mapping
   * the classname() of a Block to the BlockSolverConfig for it, which is
   * dispatched by classname() over the whole sub-tree. The latter is what
-  * makes heterogeneous subproblems configurable. */
+  * makes heterogeneous subproblems configurable. The Solver it attaches are
+  * recorded in v_sub_solvers, so that dismantle() detaches and deletes
+  * them. */
 
  void apply_BSCfg( Block * block , const std::string & fn );
 
@@ -977,6 +979,10 @@ class BendersDecompositionSolver : public CDASolver
  long f_rounds = 0;
 
  // ----- parameters -------------------------------------------------------
+
+ /// the Solver attached to the subproblems by apply_BSCfg(), with the Block
+ /// each of them is attached to, which dismantle() detaches and deletes
+ std::vector< std::pair< Block * , Solver * > > v_sub_solvers;
 
  int f_iBCopy = 0;       ///< int_BDSlv_iBCopy
 

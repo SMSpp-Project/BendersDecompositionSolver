@@ -143,6 +143,19 @@ void BendersDecompositionSolver::dismantle( void )
   f_master_solver = nullptr;
   }
 
+ /* The Solver of the subproblems (and of the replicas of their phase one)
+  * are this Solver's, attached by str_Bsub_BSCfg: they are detached and
+  * deleted first, while the subproblems are still where they were attached,
+  * so that what they did to them is undone before anything else is, e.g., a
+  * LagrangianDualSolver putting back under their fathers the sub-Block it
+  * took into its LagBFunctions. */
+
+ for( auto & [ blk , slv ] : v_sub_solvers ) {
+  blk->unregister_Solver( slv );
+  delete slv;
+  }
+ v_sub_solvers.clear();
+
  /* Projecting the y^k out has taken the x out of the Constraint of the
   * subproblem, and that is a change to (B), not to anything of this Solver's
   * own: they are put back here, with the coefficient they had, which the
@@ -2092,8 +2105,17 @@ void BendersDecompositionSolver::apply_BSCfg( Block * block ,
 {
  auto cfg = Configuration::deserialize( fn );
 
+ // applies bsc to blk, recording the Solver it attaches
+ auto attach = [ & ]( BlockSolverConfig * bsc , Block * blk ) {
+  const auto before = blk->get_registered_solvers();
+  bsc->apply( blk );
+  for( auto slv : blk->get_registered_solvers() )
+   if( std::find( before.begin() , before.end() , slv ) == before.end() )
+    v_sub_solvers.emplace_back( blk , slv );
+  };
+
  if( auto bsc = dynamic_cast< BlockSolverConfig * >( cfg ) ) {
-  bsc->apply( block );
+  attach( bsc , block );
   bsc->clear();
   delete bsc;
   return;
@@ -2116,7 +2138,7 @@ void BendersDecompositionSolver::apply_BSCfg( Block * block ,
   auto it = meta->f_value.find( blk->classname() );
   if( it != meta->f_value.end() )
    if( auto bsc = dynamic_cast< BlockSolverConfig * >( it->second ) )
-    bsc->apply( blk );
+    attach( bsc , blk );
 
   for( auto sb : blk->get_nested_Blocks() )
    dispatch( sb );
