@@ -127,6 +127,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- the pipeline runs the test of this module: the job configured the build with
+  this module alone, while the test is built only when a master `Solver`
+  (`BundleSolver`) and a subproblem one (a `:MILPSolver`) are there as well, so
+  it was never compiled and the job was running the tests of the core instead.
+  The test now carries the label of the module and the job selects by label
+
+### Fixed
+
 - the phase one minimized the violation of the coupling Constraint *plus the
   cost of the sub-Block of the subproblem*: the Objective of a Block is the
   sum of its own and of those of the Block it is made of, while only the one
