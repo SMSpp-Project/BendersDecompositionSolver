@@ -127,6 +127,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- a subproblem solved to less than the accuracy asked (`kLowPrecision`) no
+  longer stops the Solver: its cut is taken, as the value of a master solved
+  to low precision already was, and the result is then at most
+  `kLowPrecision`; the other statuses of a subproblem (a limit reached, an
+  error) still stop it and are returned
+
 - on macOS a program linking the module lost the classes the module
   registers in the factories when the linker dropped the library, as it
   does under `-dead_strip_dylibs`, which conda sets: the target now asks the

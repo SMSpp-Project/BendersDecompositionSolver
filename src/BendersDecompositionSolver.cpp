@@ -1723,10 +1723,12 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   const int st = bf->compute();
 
-  if( ( st != kOK ) && ( st != kInfeasible ) )
+  // a subproblem solved to less than the accuracy asked is taken, as the
+  // master is, and its kLowPrecision is passed on [see below]
+  if( ( st != kOK ) && ( st != kLowPrecision ) && ( st != kInfeasible ) )
    return( st );
 
-  diagonal = ( st == kOK );
+  diagonal = ( st != kInfeasible );
 
   /* An infeasible subproblem that is cut away by forbidding the assignment
    * needs no certificate, and asking for one would throw; the phase one does
@@ -1752,7 +1754,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   bf->get_linearization_coefficients( g.data() , Range( 0 , nx ) );
   alpha = bf->get_linearization_constant();
-  return( int( kOK ) );
+  return( ( st == kLowPrecision ) ? int( kLowPrecision ) : int( kOK ) );
   };
 
  /* Every value function of a round is evaluated at the same point, and the
@@ -1845,7 +1847,8 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    auto & g = v_eval[ k ].g;
    const double alpha = v_eval[ k ].alpha;
    const bool diagonal = v_eval[ k ].diagonal;
-   if( v_eval[ k ].status != kOK )
+   if( ( v_eval[ k ].status != kOK ) &&
+       ( v_eval[ k ].status != kLowPrecision ) )
     break;
 
    /* The core point is not the incumbent, hence a no-good cut written out of
@@ -1899,7 +1902,13 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
  int status = kOK;
 
+ // whether some subproblem of the last round has been solved to less than
+ // the accuracy asked, in which case the result is at most kLowPrecision
+ bool lowp = false;
+
  for( int round = 0 ; round < f_max_rounds ; ++round ) {
+
+  lowp = false;
 
   ++f_rounds;
 
@@ -1957,8 +1966,9 @@ int BendersDecompositionSolver::solve_MILP_master( void )
     const bool diagonal = v_eval[ k ].diagonal;
 
     const int st = v_eval[ k ].status;
-    if( st != kOK )
+    if( ( st != kOK ) && ( st != kLowPrecision ) )
      return( st );
+    lowp |= ( st == kLowPrecision );
 
     if( ! diagonal ) {
      add_feasibility_cut( k , g , alpha );
@@ -1978,7 +1988,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
     continue;
 
    const int cl = finish( excess );
-   return( ( status == kOK ) ? cl : status );
+   return( ( status != kOK ) ? status : lowp ? int( kLowPrecision ) : cl );
    }
 
   // evaluate each value function at the master solution- - - - - - - - - - -
@@ -1998,8 +2008,9 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    const bool diagonal = v_eval[ k ].diagonal;
 
    const int st = v_eval[ k ].status;
-   if( st != kOK )
+   if( ( st != kOK ) && ( st != kLowPrecision ) )
     return( st );
+   lowp |= ( st == kLowPrecision );
 
    if( ! diagonal ) {   // a feasibility cut is never aggregated
     all_feasible = false;
@@ -2041,7 +2052,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   if( ! added ) {   // no cut is violated: the master is the problem
    const int cl = finish( excess );
-   return( ( status == kOK ) ? cl : status );
+   return( ( status != kOK ) ? status : lowp ? int( kLowPrecision ) : cl );
    }
 
   /* The Pareto-optimal cuts come after the ordinary ones, and only when
