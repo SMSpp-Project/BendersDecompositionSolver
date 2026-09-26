@@ -681,10 +681,6 @@ class BendersDecompositionSolver : public CDASolver
   int_BDSlv_Restore ,
   ///< whether (B) is given back after each compute(), a block_handling_type
 
-  int_BDSlv_MaxThread ,
-  ///< threads evaluating the subproblems of a round in the MILP regime; 1
-  ///< (default) evaluates them one after the other
-
   intLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
@@ -790,6 +786,12 @@ class BendersDecompositionSolver : public CDASolver
 
  [[nodiscard]] const std::string & str_par_idx2str( idx_type idx )
   const override;
+
+ /// set an int parameter
+ /** Besides its own ones, BendersDecompositionSolver listens to intMaxThread
+  * of ThinComputeInterface: the number of threads evaluating the
+  * subproblems of a round in the MILP regime, 1 (default) evaluating them
+  * one after the other. */
 
  void set_par( idx_type par , int value ) override;
 
@@ -1015,7 +1017,7 @@ class BendersDecompositionSolver : public CDASolver
 
  int f_restore = eKeepReformulation;  ///< int_BDSlv_Restore
 
- int f_max_thread = 1;  ///< int_BDSlv_MaxThread
+ int f_max_thread = 1;  ///< intMaxThread
 
  double f_epi_weight = 1;  ///< dbl_BDSlv_EpiWeight
 

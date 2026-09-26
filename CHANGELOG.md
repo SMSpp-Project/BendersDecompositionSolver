@@ -18,8 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   takes the static cut from 42-73 to 24-56 rounds and from 120-201 s to
   93-105 s, the multi-cut standard staying the fastest configuration
 
-- `int_BDSlv_MaxThread`, the number of threads that evaluate the subproblems
-  of a round of the MILP regime: the evaluation of one subproblem touches
+- `intMaxThread` of ThinComputeInterface, the number of threads that
+  evaluate the subproblems of a round of the MILP regime: the evaluation of one subproblem touches
   nothing but its own sub-Block, Solver and BendersBFunction, so they run
   side by side, each writing its cut into a slot of its own, and the cuts are
   then added to the master one by one in the order of the subproblems, which

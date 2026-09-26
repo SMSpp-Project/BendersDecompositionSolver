@@ -74,8 +74,7 @@ static const std::vector< std::string > int_pars_BDSlv = {
  "int_BDSlv_CutNorm" ,
  "int_BDSlv_PhaseOneWeights" ,
  "int_BDSlv_Unified" ,
- "int_BDSlv_Restore" ,
- "int_BDSlv_MaxThread"
+ "int_BDSlv_Restore"
  };
 
 static const std::vector< std::string > dbl_pars_BDSlv = {
@@ -474,7 +473,7 @@ int BendersDecompositionSolver::get_dflt_int_par( idx_type par ) const
   case( int_BDSlv_PhaseOneWeights ): return( eUnitWeights );
   case( int_BDSlv_Unified ):   return( eNoUnified );
   case( int_BDSlv_Restore ):   return( eKeepReformulation );
-  case( int_BDSlv_MaxThread ): return( 1 );
+  case( intMaxThread ):        return( 1 );
   default:                     return( CDASolver::get_dflt_int_par( par ) );
   }
  }
@@ -614,7 +613,7 @@ void BendersDecompositionSolver::set_par( idx_type par , int value )
   case( int_BDSlv_PhaseOneWeights ): f_p1_weights = value; return;
   case( int_BDSlv_Unified ):   f_unified = value;    return;
   case( int_BDSlv_Restore ):   f_restore = value;    return;
-  case( int_BDSlv_MaxThread ): f_max_thread = value; return;
+  case( intMaxThread ):        f_max_thread = value; return;
   default:                     CDASolver::set_par( par , value );
   }
  }
@@ -672,7 +671,7 @@ int BendersDecompositionSolver::get_int_par( idx_type par ) const
   case( int_BDSlv_PhaseOneWeights ): return( f_p1_weights );
   case( int_BDSlv_Unified ):   return( f_unified );
   case( int_BDSlv_Restore ):   return( f_restore );
-  case( int_BDSlv_MaxThread ): return( f_max_thread );
+  case( intMaxThread ):        return( f_max_thread );
   default:                     return( CDASolver::get_int_par( par ) );
   }
  }
