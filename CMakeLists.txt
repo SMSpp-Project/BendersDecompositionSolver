@@ -132,30 +132,6 @@ target_link_libraries(${modName} PUBLIC
 # the library with this notation.
 add_library(${modNamespace}::${modName} ALIAS ${modName})
 
-# ----- Tests --------------------------------------------------------------- #
-# The validation test compares BendersDecompositionSolver against a monolithic
-# reference solve, so it needs a master Solver (BundleSolver) and a subproblem
-# Solver (a *MILPSolver); it is built only when both modules are available.
-if (BUILD_BundleSolver AND BUILD_MILPSolver)
-    # enable testing in this directory's scope: the umbrella calls
-    # enable_testing() only after this subdirectory has been processed, so the
-    # test would otherwise not be registered with CTest
-    enable_testing()
-    add_executable(${modName}_test test/test.cpp)
-    target_link_libraries(${modName}_test PRIVATE
-            ${modNamespace}::${modName}
-            ${modNamespace}::BundleSolver
-            ${modNamespace}::MILPSolver)
-    add_test(NAME ${modName}_test
-            COMMAND ${modName}_test
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
-
-    # The label lets the module CI select exactly the tests exercising this
-    # module with `ctest -L <module>` (see tests/cmake/TestLabels.cmake in the
-    # umbrella for the system-tests counterpart).
-    set_tests_properties(${modName}_test PROPERTIES LABELS "${modName}")
-endif ()
-
 # ----- Install instructions ------------------------------------------------ #
 # The following commands are used when installing the library
 # and its CMake configuration files on the system.

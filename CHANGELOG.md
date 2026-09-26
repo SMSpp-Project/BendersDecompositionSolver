@@ -116,6 +116,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builds out of nothing, so that the module knows of no other module than
   the Solver its master and its subproblems need
 
+- the module has no test of its own left: the validation on a two-stage
+  linear program written as an `AbstractBlock` needs a `BundleSolver` for
+  the master and a `:MILPSolver` for the subproblems and the reference,
+  neither of which is a dependency of the module, hence it moves to the
+  suite `tests/SMS++/AbstractBlock` of the umbrella, with its
+  configurations, and the pipeline builds the module alone and has no test
+  stage
+
 - taking the complicating Variable out of the Constraint of a subproblem, and
   putting them back, issues no Modification: the Solver of the subproblem is
   attached after the reformulation and reads it as it is then, while a Solver
