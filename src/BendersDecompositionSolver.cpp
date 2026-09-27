@@ -315,12 +315,18 @@ int BendersDecompositionSolver::compute( bool changedvars )
  map_back_solution();
 
  /* Everything this Solver has assembled around (B) is disposed of, (B) being
-  * asked to be a problem of its own out of compute(); what has been read out
-  * of the master is kept, so that the value and the solution can still be
-  * asked for. */
+  * asked to be a problem of its own out of compute(); the value read out of
+  * the master is kept, and the solution is written into the Variable of (B)
+  * before the Solver that hold it go, so that both can still be asked for
+  * [see get_var_solution()]. */
 
- if( f_restore == eRestoreBlock )
+ if( f_restore == eRestoreBlock ) {
+  const bool solved = f_solved;
+  if( solved )
+   get_var_solution();
   dismantle();
+  f_solved = solved;
+  }
 
  return( status );
 
@@ -370,7 +376,9 @@ void BendersDecompositionSolver::get_var_solution( Configuration * solc )
   * subproblem are written into the inner Block, which holds the very
   * Variable the original sub-Block had. Note that in the MILP regime a
   * Configuration addressing a sub-Block by position refers to the master,
-  * where (B) is the first sub-Block. */
+  * where (B) is the first sub-Block. With eRestoreBlock the master and the
+  * subproblems are gone after compute(), which has written the solution
+  * into (B) already, and there is nothing left to do. */
 
  if( f_master_solver )
   f_master_solver->get_var_solution( solc );

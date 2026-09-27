@@ -550,7 +550,9 @@ class BendersDecompositionSolver : public CDASolver
   * master and are therefore thrown away with it, so that nothing is warm
   * started; what it buys is that (B) is a problem of its own whenever this
   * Solver is not inside compute(), hence that other Solver can be attached to
-  * it and cross-checked against this one. */
+  * it and cross-checked against this one. The solution is written into the
+  * Variable of (B) at the end of compute(), before the master and the
+  * subproblems go, so that has_var_solution() still answers for it. */
 
  enum block_handling_type {
   eKeepReformulation = 0 ,  ///< the reformulation stays until the Solver goes

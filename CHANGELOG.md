@@ -135,6 +135,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- with `int_BDSlv_Restore` 1 the solution is written into the Variable of
+  the Block at the end of `compute()`, before the master and the
+  subproblems are disposed of, and `has_var_solution()` still answers for
+  it: it used to answer false, the Solver that held the solution being gone
+
 - a subproblem solved to less than the accuracy asked (`kLowPrecision`) no
   longer stops the Solver: its cut is taken, as the value of a master solved
   to low precision already was, and the result is then at most
