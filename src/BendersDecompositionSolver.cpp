@@ -294,6 +294,7 @@ int BendersDecompositionSolver::compute( bool changedvars )
  acquire_master_solver();
 
  f_solved = false;
+ f_recovered = false;
 
  int status;
 
@@ -314,6 +315,9 @@ int BendersDecompositionSolver::compute( bool changedvars )
   f_value = f_master_solver->get_lb();
   f_ub = f_master_solver->get_ub();
   f_solved = f_master_solver->has_var_solution();
+  if( ( ! f_RecoveryBSC.empty() ) && f_solved &&
+      ( ( status == kOK ) || ( status == kLowPrecision ) ) )
+   status = recover_upper_bound();
   }
 
  map_back_solution();
@@ -353,7 +357,9 @@ Solver::OFValue BendersDecompositionSolver::get_lb( void )
 
 Solver::OFValue BendersDecompositionSolver::get_ub( void )
 {
- if( ( f_regime == eMILPMaster ) || ( ! f_master_solver ) )
+ // after a recovery the upper bound is the value of the recovered solution,
+ // not that of the master, whose value functions are bounds
+ if( ( f_regime == eMILPMaster ) || ( ! f_master_solver ) || f_recovered )
   return( f_ub );
 
  return( f_master_solver->get_ub() );
@@ -2100,14 +2106,39 @@ int BendersDecompositionSolver::recover_upper_bound( void )
  // not touched, and are detached by the same BlockSolverConfig once cleared
  bsc->set_diff( BlockSolverConfig::eAddMode );
 
- // the cost of the design, i.e., the value of the master without that of
- // the epigraph Variable
- double ub = f_value;
- for( const auto & eta : *v_eta )
-  ub -= eta.get_value();
+ /* The cost of the design. In the MILP regime it is the value of the master
+  * without that of the epigraph Variable; in the convex regime the design is
+  * the best point of the bundle, which the master Solver writes into the x,
+  * and it is the value there without that of the value functions, which
+  * each subproblem gives again at that point below. */
+
+ const bool milp = ( f_regime == eMILPMaster );
+ double ub;
+ if( milp ) {
+  ub = f_value;
+  for( const auto & eta : *v_eta )
+   ub -= eta.get_value();
+  }
+ else {
+  f_master_solver->get_var_solution();
+  ub = f_ub;
+  }
+
+ const auto ok = []( int st ) {
+  return( ( st == kOK ) || ( st == kLowPrecision ) );
+  };
 
  int status = kOK;
  for( auto bf : v_BF ) {
+  if( ! milp ) {
+   const int st = bf->compute();
+   if( ! ok( st ) ) {
+    status = st;
+    break;
+    }
+   ub -= bf->get_value();
+   }
+
   auto sub = bf->get_inner_block();
   const auto nslv = sub->get_registered_solvers().size();
   bsc->apply( sub );
@@ -2115,7 +2146,7 @@ int BendersDecompositionSolver::recover_upper_bound( void )
   const auto used = bf->get_int_par( BendersBFunction::intSolverIndex );
   bf->set_par( BendersBFunction::intSolverIndex , int( nslv ) );
   const int st = bf->compute();
-  if( ( st == kOK ) || ( st == kLowPrecision ) )
+  if( ok( st ) )
    ub += bf->get_value();
   else
    status = st;
@@ -2134,6 +2165,7 @@ int BendersDecompositionSolver::recover_upper_bound( void )
   return( status );
 
  f_ub = ub;
+ f_recovered = true;
  if( f_ub - f_value > f_rel_acc * std::max( 1.0 , std::abs( f_value ) ) )
   return( int( kLowPrecision ) );
  return( int( kOK ) );

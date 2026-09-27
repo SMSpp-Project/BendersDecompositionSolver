@@ -10,8 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `strRecoveryBSC`, the BlockSolverConfig of the recovery of a feasible
-  solution in the MILP regime: at the end of `compute()` each subproblem is
-  solved once more at the design of the master by the Solver it attaches
+  solution, in both regimes: at the end of `compute()` each subproblem is
+  solved once more at the design of the master (in the convex regime, the
+  best point of the bundle) by the Solver it attaches
   (e.g., a `:MILPSolver`), in additive mode and detached afterwards, and the
   upper bound becomes the cost of the design plus their values. With the
   subproblems solved by a Lagrangian dual, whose values are bounds, the

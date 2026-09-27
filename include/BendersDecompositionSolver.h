@@ -882,18 +882,19 @@ class BendersDecompositionSolver : public CDASolver
  void map_back_solution( void );
 
  /// recovers a feasible solution at the design of the master
- /** Called at the end of compute() in the MILP regime when strRecoveryBSC is
-  * not empty. The value of a subproblem solved by a Solver that is not
+ /** Called at the end of compute() when strRecoveryBSC is not empty, in
+  * both regimes. The value of a subproblem solved by a Solver that is not
   * exact, e.g., a Lagrangian dual over the units of a unit commitment, is a
-  * bound, hence so is the upper bound the cutting-plane loop records. Here
-  * each subproblem is solved once more at the design of the master by the
-  * Solver that the BlockSolverConfig in strRecoveryBSC attaches to it
-  * (e.g., a :MILPSolver), in additive mode, and detached afterwards; the
-  * upper bound becomes the cost of the design plus the sum of those
-  * values, i.e., the value of a feasible solution. Returns kOK if that is
-  * within dblRelAcc of the lower bound, kLowPrecision if it is not, and the
-  * status of a subproblem whose Solver fails, leaving the upper bound as
-  * it was. */
+  * bound, hence so is the upper bound that the cutting-plane loop, or the
+  * bundle of the convex regime, records. Here each subproblem is solved once
+  * more at the design of the master (in the convex regime, the best point
+  * of the bundle) by the Solver that the BlockSolverConfig in strRecoveryBSC
+  * attaches to it (e.g., a :MILPSolver), in additive mode, and detached
+  * afterwards; the upper bound becomes the cost of the design plus the sum
+  * of those values, i.e., the value of a feasible solution. Returns kOK if
+  * that is within dblRelAcc of the lower bound, kLowPrecision if it is not,
+  * and the status of a subproblem whose Solver fails, leaving the upper
+  * bound as it was. */
 
  int recover_upper_bound( void );
 
@@ -1050,6 +1051,9 @@ class BendersDecompositionSolver : public CDASolver
 
  std::string f_Mstr_BSCfg;  ///< str_Mstr_BSCfg
  std::string f_RecoveryBSC;  ///< strRecoveryBSC
+
+ /// whether f_ub is the value of a solution recovered in the last compute()
+ bool f_recovered = false;
 
  std::vector< int > v_master_block;  ///< vintMasterBlock
 
