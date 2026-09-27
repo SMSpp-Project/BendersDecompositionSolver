@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `strRecoveryBSC`, the BlockSolverConfig of the recovery of a feasible
+  solution in the MILP regime: at the end of `compute()` each subproblem is
+  solved once more at the design of the master by the Solver it attaches
+  (e.g., a `:MILPSolver`), in additive mode and detached afterwards, and the
+  upper bound becomes the cost of the design plus their values. With the
+  subproblems solved by a Lagrangian dual, whose values are bounds, the
+  upper bound of the cutting-plane loop is not the value of a solution, and
+  this gives one, together with its gap to the lower bound
+
 - `int_BDSlv_Pareto 2`, the unified cut separated once per round at the
   incumbent moved by `dbl_BDSlv_ParetoMu` (default 0.1) towards the core
   point, which is the nondominated cut of Sherali and Lunday: the separation

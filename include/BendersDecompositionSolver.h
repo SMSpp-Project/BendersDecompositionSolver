@@ -742,6 +742,10 @@ class BendersDecompositionSolver : public CDASolver
   str_Mstr_BSCfg ,
   ///< filename of the BlockSolverConfig for the master Block
 
+  strRecoveryBSC ,
+  ///< filename of the BlockSolverConfig of the recovery of a feasible
+  ///< solution, empty (default) for none [see recover_upper_bound()]
+
   strLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
@@ -877,6 +881,23 @@ class BendersDecompositionSolver : public CDASolver
  /// translate the master x and the subproblem y^k back into (B)
  void map_back_solution( void );
 
+ /// recovers a feasible solution at the design of the master
+ /** Called at the end of compute() in the MILP regime when strRecoveryBSC is
+  * not empty. The value of a subproblem solved by a Solver that is not
+  * exact, e.g., a Lagrangian dual over the units of a unit commitment, is a
+  * bound, hence so is the upper bound the cutting-plane loop records. Here
+  * each subproblem is solved once more at the design of the master by the
+  * Solver that the BlockSolverConfig in strRecoveryBSC attaches to it
+  * (e.g., a :MILPSolver), in additive mode, and detached afterwards; the
+  * upper bound becomes the cost of the design plus the sum of those
+  * values, i.e., the value of a feasible solution. Returns kOK if that is
+  * within dblRelAcc of the lower bound, kLowPrecision if it is not, and the
+  * status of a subproblem whose Solver fails, leaving the upper bound as
+  * it was. */
+
+ int recover_upper_bound( void );
+
+/*--------------------------------------------------------------------------*/
  /// create the master Solver out of str_Mstr_BSCfg and register it
  /** Creates the Solver named by the BlockSolverConfig in str_Mstr_BSCfg,
   * gives it the corresponding ComputeConfig, tells it which sub-Block it has
@@ -1028,6 +1049,7 @@ class BendersDecompositionSolver : public CDASolver
  std::string f_Bsub_BSCfg;  ///< str_Bsub_BSCfg
 
  std::string f_Mstr_BSCfg;  ///< str_Mstr_BSCfg
+ std::string f_RecoveryBSC;  ///< strRecoveryBSC
 
  std::vector< int > v_master_block;  ///< vintMasterBlock
 

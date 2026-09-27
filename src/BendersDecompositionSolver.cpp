@@ -91,7 +91,8 @@ static const std::vector< std::string > vint_pars_BDSlv = {
 static const std::vector< std::string > str_pars_BDSlv = {
  "str_BDSlv_MSName" ,
  "str_Bsub_BSCfg" ,
- "str_Mstr_BSCfg"
+ "str_Mstr_BSCfg" ,
+ "strRecoveryBSC"
  };
 
 /*--------------------------------------------------------------------------*/
@@ -299,6 +300,9 @@ int BendersDecompositionSolver::compute( bool changedvars )
  if( f_regime == eMILPMaster ) {
   f_ub = Inf< OFValue >();
   status = solve_MILP_master();
+  if( ( ! f_RecoveryBSC.empty() ) &&
+      ( ( status == kOK ) || ( status == kLowPrecision ) ) )
+   status = recover_upper_bound();
   }
  else {
   /* In the convex regime the master Solver is a bundle-type one, which drives
@@ -660,6 +664,7 @@ void BendersDecompositionSolver::set_par( idx_type par ,
   case( str_BDSlv_MSName ): f_MSName = value;     return;
   case( str_Bsub_BSCfg ):   f_Bsub_BSCfg = value; return;
   case( str_Mstr_BSCfg ):   f_Mstr_BSCfg = value; return;
+  case( strRecoveryBSC ):   f_RecoveryBSC = value; return;
   default:                  CDASolver::set_par( par , value );
   }
  }
@@ -718,6 +723,7 @@ const std::string & BendersDecompositionSolver::get_str_par(
   case( str_BDSlv_MSName ): return( f_MSName );
   case( str_Bsub_BSCfg ):   return( f_Bsub_BSCfg );
   case( str_Mstr_BSCfg ):   return( f_Mstr_BSCfg );
+  case( strRecoveryBSC ):   return( f_RecoveryBSC );
   default:                  return( CDASolver::get_str_par( par ) );
   }
  }
@@ -2074,6 +2080,65 @@ int BendersDecompositionSolver::solve_MILP_master( void )
  return( kStopIter );
 
  }  // end( BendersDecompositionSolver::solve_MILP_master )
+
+/*--------------------------------------------------------------------------*/
+
+int BendersDecompositionSolver::recover_upper_bound( void )
+{
+ static const std::string _prfx =
+                    "BendersDecompositionSolver::recover_upper_bound: ";
+
+ auto cfg = Configuration::deserialize( f_RecoveryBSC );
+ auto bsc = dynamic_cast< BlockSolverConfig * >( cfg );
+ if( ! bsc ) {
+  delete cfg;
+  throw( std::invalid_argument( _prfx + f_RecoveryBSC +
+                                " is not a BlockSolverConfig" ) );
+  }
+
+ // the Solver of the recovery come after those of the subproblem, which are
+ // not touched, and are detached by the same BlockSolverConfig once cleared
+ bsc->set_diff( BlockSolverConfig::eAddMode );
+
+ // the cost of the design, i.e., the value of the master without that of
+ // the epigraph Variable
+ double ub = f_value;
+ for( const auto & eta : *v_eta )
+  ub -= eta.get_value();
+
+ int status = kOK;
+ for( auto bf : v_BF ) {
+  auto sub = bf->get_inner_block();
+  const auto nslv = sub->get_registered_solvers().size();
+  bsc->apply( sub );
+
+  const auto used = bf->get_int_par( BendersBFunction::intSolverIndex );
+  bf->set_par( BendersBFunction::intSolverIndex , int( nslv ) );
+  const int st = bf->compute();
+  if( ( st == kOK ) || ( st == kLowPrecision ) )
+   ub += bf->get_value();
+  else
+   status = st;
+  bf->set_par( BendersBFunction::intSolverIndex , used );
+
+  if( status != kOK )
+   break;
+  }
+
+ bsc->clear();
+ for( auto bf : v_BF )
+  bsc->apply( bf->get_inner_block() );
+ delete bsc;
+
+ if( status != kOK )
+  return( status );
+
+ f_ub = ub;
+ if( f_ub - f_value > f_rel_acc * std::max( 1.0 , std::abs( f_value ) ) )
+  return( int( kLowPrecision ) );
+ return( int( kOK ) );
+
+ }  // end( BendersDecompositionSolver::recover_upper_bound )
 
 /*--------------------------------------------------------------------------*/
 
