@@ -182,26 +182,32 @@ namespace SMSpp_di_unipi_it
  * Two regimes are supported for how the master (O') is solved, selected by
  * the int_BDSlv_Regime parameter:
  *
- * - convex regime (the x are continuous, or a continuous relaxation is being
- *   solved): the master Objective is d( x ) + \sum_k v^k( x ), with the v^k()
- *   entering as C05Function; the master is handed to a CDASolver of the bundle
- *   family (e.g., BundleSolver), which drives the cutting-plane / stabilized
- *   cutting-plane loop pulling linearizations from the BendersBFunction. This
- *   is the setting of the COAP15 reference;
+ * - convex regime: the master Objective is d( x ) + \sum_k v^k( x ), with
+ *   the v^k() entering as C05Function; the master is handed to a CDASolver
+ *   of the bundle family (e.g., BundleSolver), which drives the cutting-plane
+ *   / stabilized cutting-plane loop pulling linearizations from the
+ *   BendersBFunction. This is the setting of the COAP15 reference. With
+ *   continuous x this is the convex problem; with integer x it is either its
+ *   continuous relaxation or, with a BundleSolver that keeps them integer
+ *   (intIntVars == 1, with a proximal or trust-region master that a
+ *   :MILPSolver solves as a mixed-integer problem), the stabilized Benders'
+ *   decomposition of the COAP15 reference over the integer x [see
+ *   BundleSolver::compute_integer()];
  *
  * - MILP regime (the x are integer): the master is a MILP with one epigraph
  *   Variable per subproblem (multi-cut) or a single aggregated one
  *   (single-cut), and the Benders cuts are added as dynamic Constraint; the
- *   master is solved by a MILPSolver, with BendersDecompositionSolver driving
- *   the outer cut loop (solve master, evaluate each v^k at the incumbent x,
- *   add the violated cuts, re-solve) until no violated cut remains. This is
- *   the setting of the ManSci18 reference. A cut is violated when its value
- *   at the incumbent is above the epigraph Variable, which is the value of
- *   the function when the subproblem is solved exactly; a Solver that is
- *   not, e.g., a Lagrangian dual, gives a value above the cut, and the loop
- *   stops with the master value as lower bound and the values at the
- *   incumbent as upper one, returning kLowPrecision if they are farther
- *   apart than dblRelAcc says.
+ *   master is solved by a MILPSolver, with BendersDecompositionSolver
+ *   driving the outer cut loop (solve master, evaluate each v^k at the
+ *   incumbent x, add the violated cuts, re-solve) until no violated cut
+ *   remains. This is the setting of the ManSci18 reference without its
+ *   stabilization, which on integer x the convex regime gives [see above].
+ *   A cut is violated when its value at the incumbent is above the epigraph
+ *   Variable, which is the value of the function when the subproblem is
+ *   solved exactly; a Solver that is not, e.g., a Lagrangian dual, gives a
+ *   value above the cut, and the loop stops with the master value as lower
+ *   bound and the values at the incumbent as upper one, returning
+ *   kLowPrecision if they are farther apart than dblRelAcc says.
  *
  * In both regimes the BendersBFunction objects are the same; only the master
  * assembly and the loop driver differ. The "inner" solver of the master is
