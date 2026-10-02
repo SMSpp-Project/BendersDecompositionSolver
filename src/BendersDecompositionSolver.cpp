@@ -282,6 +282,8 @@ void BendersDecompositionSolver::dismantle( void )
 
 int BendersDecompositionSolver::compute( bool changedvars )
 {
+ f_start = std::chrono::steady_clock::now();
+
  /* The reformulation is done by set_Block(), with the parameters the Solver
   * has at that moment: a BlockSolverConfig sets them through its
   * ComputeConfig before it registers the Solver, while a parameter that
@@ -310,6 +312,7 @@ int BendersDecompositionSolver::compute( bool changedvars )
    * the cutting-plane loop by itself: the linearizations it asks the value
    * functions for *are* the Benders cuts. */
 
+  master_time_limit();
   status = f_master_solver->compute( changedvars );
 
   f_value = f_master_solver->get_lb();
@@ -439,9 +442,22 @@ long BendersDecompositionSolver::get_elapsed_iterations( void ) const
 
 double BendersDecompositionSolver::get_elapsed_time( void ) const
 {
- return( f_master_solver ? f_master_solver->get_elapsed_time() : 0 );
+ return( std::chrono::duration< double >(
+                       std::chrono::steady_clock::now() - f_start ).count() );
 
  }  // end( BendersDecompositionSolver::get_elapsed_time )
+
+/*--------------------------------------------------------------------------*/
+
+void BendersDecompositionSolver::master_time_limit( void )
+{
+ if( f_max_time >= Inf< double >() )
+  return;
+
+ const double left = std::max( f_max_time - get_elapsed_time() , 0.0 );
+ f_master_solver->set_par( dblMaxTime , std::min( f_master_max_time , left ) );
+
+ }  // end( BendersDecompositionSolver::master_time_limit )
 
 /*--------------------------------------------------------------------------*/
 /*------------------------- HANDLING PARAMETERS ----------------------------*/
@@ -645,6 +661,7 @@ void BendersDecompositionSolver::set_par( idx_type par , double value )
   case( dbl_BDSlv_EpiWeight ): f_epi_weight = value; return;
   case( dbl_BDSlv_ParetoMu ): f_pareto_mu = value; return;
   case( dblRelAcc ):          f_rel_acc = value;   return;
+  case( dblMaxTime ):         f_max_time = value;  return;
   default:                    CDASolver::set_par( par , value );
   }
  }
@@ -704,6 +721,7 @@ double BendersDecompositionSolver::get_dbl_par( idx_type par ) const
   case( dbl_BDSlv_EpiWeight ): return( f_epi_weight );
   case( dbl_BDSlv_ParetoMu ):  return( f_pareto_mu );
   case( dblRelAcc ):           return( f_rel_acc );
+  case( dblMaxTime ):          return( f_max_time );
   default:                     return( CDASolver::get_dbl_par( par ) );
   }
  }
@@ -1931,6 +1949,12 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   ++f_rounds;
 
+  // the time is checked at each round, and what is left of it is all the
+  // master can take
+  if( get_elapsed_time() >= f_max_time )
+   return( kStopTime );
+  master_time_limit();
+
   status = f_master_solver->compute( round > 0 );
 
   if( ( status != kOK ) && ( status != kLowPrecision ) )
@@ -2239,6 +2263,10 @@ void BendersDecompositionSolver::acquire_master_solver( void )
   f_master_solver->set_ComputeConfig( cc );
 
  delete bsc;
+
+ // the time limit of its own the master has, which the one of this Solver
+ // can only shorten [see master_time_limit()]
+ f_master_max_time = f_master_solver->get_dbl_par( dblMaxTime );
 
  /* The exclusion list has to be installed *before* the Solver is attached to
   * the master, for it is at that moment that the Block tree is scanned and

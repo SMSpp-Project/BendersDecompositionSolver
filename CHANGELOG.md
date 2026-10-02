@@ -145,6 +145,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `dblMaxTime` limits a whole call to `compute()`, which ignored it: the
+  master gets what is left of it (or its own limit, if shorter), the loop of
+  the MILP regime stops with `kStopTime` at the first round that finds the
+  time over, and `get_elapsed_time()` is the time since the call began
+  rather than that of the last solution of the master
+
 - with `int_BDSlv_Restore` 1 the solution is written into the Variable of
   the Block at the end of `compute()`, before the master and the
   subproblems are disposed of, and `has_var_solution()` still answers for

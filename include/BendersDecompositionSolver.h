@@ -100,6 +100,8 @@
 
 #include "UpdateSolver.h"
 
+#include <chrono>
+
 #include <list>
 
 #include <map>
@@ -208,6 +210,12 @@ namespace SMSpp_di_unipi_it
  *   value above the cut, and the loop stops with the master value as lower
  *   bound and the values at the incumbent as upper one, returning
  *   kLowPrecision if they are farther apart than dblRelAcc says.
+ *
+ * In both regimes dblMaxTime limits a whole call to compute(): the master
+ * is given what is left of it, or the dblMaxTime of its own ComputeConfig
+ * if that is shorter, and in the MILP regime the loop stops with kStopTime
+ * at the first round that finds the time over, the subproblems of a round
+ * being solved all in any case.
  *
  * In both regimes the BendersBFunction objects are the same; only the master
  * assembly and the loop driver differ. The "inner" solver of the master is
@@ -641,7 +649,7 @@ class BendersDecompositionSolver : public CDASolver
  [[nodiscard]] long get_num_cuts( void ) const { return( f_cuts ); }
 
 /*--------------------------------------------------------------------------*/
- /// the time spent in the cutting-plane loop, master and subproblems
+ /// the time since the last call to compute() began [see dblMaxTime]
 
  double get_elapsed_time( void ) const override;
 
@@ -916,6 +924,11 @@ class BendersDecompositionSolver : public CDASolver
 
  void acquire_master_solver( void );
 
+/*--------------------------------------------------------------------------*/
+ /// give the master what is left of dblMaxTime
+
+ void master_time_limit( void );
+
  /// apply to \p block the BlockSolverConfig, or meta-configuration, in \p fn
  /** Applies to \p block the Configuration in the file \p fn, which is either
   * a BlockSolverConfig, applied as it is, or a "meta-configuration", i.e., a
@@ -1038,6 +1051,13 @@ class BendersDecompositionSolver : public CDASolver
 
  double f_pareto_mu = 0.1;  ///< dbl_BDSlv_ParetoMu
  double f_rel_acc = 1e-6;   ///< dblRelAcc, the gap kOK tolerates
+
+ double f_max_time = Inf< double >();  ///< dblMaxTime, for a whole call
+
+ double f_master_max_time = Inf< double >();
+                           ///< the dblMaxTime the master is configured with
+
+ std::chrono::steady_clock::time_point f_start;  ///< when compute() began
 
  int f_cut_norm = eNoNorm;  ///< int_BDSlv_CutNorm
 
