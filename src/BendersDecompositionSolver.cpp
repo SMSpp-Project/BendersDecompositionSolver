@@ -2343,8 +2343,9 @@ void BendersDecompositionSolver::apply_BSCfg( Block * block ,
   }
 
  /* A "meta-configuration" maps the classname() of a Block to the
-  * BlockSolverConfig for it: it is dispatched over the whole sub-tree, so
-  * that subproblems of different types get each the Solver that fits it. */
+  * BlockSolverConfig for it, "*" being that of the classname() it does not
+  * name: it is dispatched over the whole sub-tree, father-first, so that
+  * subproblems of different types get each the Solver that fits it. */
 
  auto meta = dynamic_cast< SimpleConfiguration<
                     std::map< std::string , Configuration * > > * >( cfg );
@@ -2355,17 +2356,12 @@ void BendersDecompositionSolver::apply_BSCfg( Block * block ,
                                 "map of them" ) );
   }
 
- std::function< void( Block * ) > dispatch = [ & ]( Block * blk ) {
-  auto it = meta->f_value.find( blk->classname() );
-  if( it != meta->f_value.end() )
-   if( auto bsc = dynamic_cast< BlockSolverConfig * >( it->second ) )
-    attach( bsc , blk );
-
-  for( auto sb : blk->get_nested_Blocks() )
-   dispatch( sb );
-  };
-
- dispatch( block );
+ for_each_by_classname( block , meta->f_value ,
+                        [ & ]( Block * blk , Configuration * c ) {
+                         if( auto bsc =
+                             dynamic_cast< BlockSolverConfig * >( c ) )
+                          attach( bsc , blk );
+                         } );
 
  delete meta;
 
