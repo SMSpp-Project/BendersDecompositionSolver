@@ -107,6 +107,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- the meta BlockSolverConfig of the subproblems accepts the `"*"` entry for
+  the classnames it does not name
+
 - the documentation of the Solver says where the reformulation of the Block
   is done, what the phases of the algorithm are and what each parameter asks
   of it, which the header left to whoever read the code
