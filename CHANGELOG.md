@@ -107,6 +107,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `set_par()` throws on a nonzero `int_BDSlv_iBCopy`, which is reserved and
+  not implemented, instead of ignoring it; `int_BDSlv_Restore` is the way
+  to keep (B) intact between calls
+
 - the documentation of the Solver says where the reformulation of the Block
   is done, what the phases of the algorithm are and what each parameter asks
   of it, which the header left to whoever read the code

@@ -668,7 +668,9 @@ class BendersDecompositionSolver : public CDASolver
  enum int_par_type_BDSlv {
   int_BDSlv_iBCopy = intLastParCDAS ,
   ///< copy (R3_Block) vs evict the sub-Block into the BendersBFunction;
-  ///< reserved: the sub-Block is always evicted, whatever the value
+  ///< reserved: the sub-Block is always evicted, set_par() throws on any
+  ///< value but 0, and (B) is kept intact between calls by
+  ///< int_BDSlv_Restore instead
 
   int_BDSlv_Regime ,
   ///< master regime, a master_regime_type value
@@ -695,7 +697,8 @@ class BendersDecompositionSolver : public CDASolver
   ///< one cut for feasibility and optimality, a unified_cut_type value
 
   int_BDSlv_Restore ,
-  ///< whether (B) is given back after each compute(), a block_handling_type
+  ///< whether (B) is given back after each compute(), a block_handling_type;
+  ///< the reformulation is undone, nothing is copied [see int_BDSlv_iBCopy]
 
   intLastBDSlvPar  ///< first allowed parameter value for derived classes
   };

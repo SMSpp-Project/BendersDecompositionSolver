@@ -637,7 +637,13 @@ const std::string & BendersDecompositionSolver::str_par_idx2str(
 void BendersDecompositionSolver::set_par( idx_type par , int value )
 {
  switch( par ) {
-  case( int_BDSlv_iBCopy ):    f_iBCopy = value;     return;
+  case( int_BDSlv_iBCopy ):
+   if( value )
+    throw( std::invalid_argument( "BendersDecompositionSolver::set_par: "
+                                  "int_BDSlv_iBCopy is not implemented, "
+                                  "see int_BDSlv_Restore" ) );
+   f_iBCopy = value;
+   return;
   case( int_BDSlv_Regime ):    f_regime = value;     return;
   case( int_BDSlv_CutType ):   f_cut_type = value;   return;
   case( int_BDSlv_FeasCut ):   f_feas_cut = value;   return;
