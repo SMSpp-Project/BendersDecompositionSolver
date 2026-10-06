@@ -42,6 +42,8 @@
 
 #include <functional>
 
+#include <iomanip>
+
 #include <mutex>
 
 #include <thread>
@@ -1949,6 +1951,32 @@ int BendersDecompositionSolver::solve_MILP_master( void )
  // the accuracy asked, in which case the result is at most kLowPrecision
  bool lowp = false;
 
+ /* One line of log per round, if a log is attached: the lower bound of the
+  * master, the best upper bound found so far, the cuts added in the round
+  * (and in all) and the time. The upper bound of a round is the master
+  * value plus how much the value functions are above their epigraph
+  * Variable at the incumbent, which is the value of the incumbent only when
+  * every subproblem has one, i.e., when none has given a feasibility cut. */
+
+ double best_ub = Inf< double >();
+
+ auto log_round = [ & ]( Index added , bool feasible , double excess ) {
+  if( feasible )
+   best_ub = std::min( best_ub , f_value + std::max( excess , 0.0 ) );
+  if( ! f_log )
+   return;
+  const auto prec = f_log->precision();
+  *f_log << "BendersDecompositionSolver: round " << f_rounds
+	 << std::setprecision( 12 ) << ", lb " << f_value << ", ub ";
+  if( best_ub < Inf< double >() )
+   *f_log << best_ub;
+  else
+   *f_log << "inf";
+  *f_log << ", cuts " << added << " (" << f_cuts << ")"
+	 << std::setprecision( 3 ) << ", " << get_elapsed_time() << " s"
+	 << std::setprecision( prec ) << std::endl;
+  };
+
  for( int round = 0 ; round < f_max_rounds ; ++round ) {
 
   lowp = false;
@@ -2006,6 +2034,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
    Index late = 0;
    double excess = 0;   // how much the values are above the epigraph
+   bool feasible = true;
 
    evaluate_all();
 
@@ -2022,6 +2051,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
     if( ! diagonal ) {
      add_feasibility_cut( k , g , alpha );
      ++late;
+     feasible = false;
      continue;
      }
 
@@ -2032,6 +2062,8 @@ int BendersDecompositionSolver::solve_MILP_master( void )
      ++late;
      }
     }
+
+   log_round( late , feasible , excess );
 
    if( late )
     continue;
@@ -2098,6 +2130,8 @@ int BendersDecompositionSolver::solve_MILP_master( void )
     ++added;
     }
    }
+
+  log_round( added , all_feasible , excess );
 
   if( ! added ) {   // no cut is violated: the master is the problem
    const int cl = finish( excess );

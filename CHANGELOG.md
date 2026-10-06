@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- with a log attached, the MILP master writes one line per round: the lower
+  bound of the master, the best upper bound found so far (the value of the
+  incumbent of a round in which every subproblem has one), the cuts added in
+  the round and in all, and the time; in the convex regime the log is that
+  of the bundle-type master Solver
+
 - `strRecoveryBSC`, the BlockSolverConfig of the recovery of a feasible
   solution, in both regimes: at the end of `compute()` each subproblem is
   solved once more at the design of the master (in the convex regime, the
