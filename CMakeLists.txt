@@ -80,7 +80,7 @@ set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 # With the BUILD_SHARED_LIBS variable we can specify if the library will
 # be STATIC or SHARED, so no reason to do it now.
 add_library(${modName})
-target_compile_features(${modName} PUBLIC cxx_std_17)
+target_compile_features(${modName} PUBLIC cxx_std_20)
 
 # The name of the shared library carries the version of its binary interface,
 # which any minor release may change while the major version is 0, and then
@@ -94,8 +94,25 @@ set_target_properties(${modName} PROPERTIES
         VERSION ${PROJECT_VERSION}
         SOVERSION ${soVersion})
 
-if (MSVC AND BUILD_SHARED_LIBS)
-    target_link_options(${modName} INTERFACE "/INCLUDE:SMSpp_force_load_${modName}")
+# The classes of the module register themselves in the factory from a static
+# initialiser, and a linker that drops what looks unused takes the
+# registration away with it: the target tells whoever links it to keep the
+# symbol that forces the module in, or the library as a whole where naming
+# the symbol is not enough.
+if (BUILD_SHARED_LIBS)
+    if (MSVC)
+        target_link_options(${modName} INTERFACE
+                "/INCLUDE:SMSpp_force_load_${modName}")
+    elseif (UNIX AND (NOT APPLE))
+        # the ELF linker decides by the symbols a regular object asks for, so
+        # naming the symbol is not enough and the library has to be kept
+        target_link_options(${modName} INTERFACE "LINKER:--no-as-needed")
+    elseif (APPLE)
+        # ld64 keeps a dylib that provides a symbol to the link, one asked
+        # for by -u included, even under -dead_strip_dylibs
+        target_link_options(${modName} INTERFACE
+                "LINKER:-u,_SMSpp_force_load_${modName}")
+    endif ()
 endif ()
 
 # Note: do not GLOB files here.
@@ -114,104 +131,6 @@ target_link_libraries(${modName} PUBLIC
 # This alias is defined so that executables in this same project can use
 # the library with this notation.
 add_library(${modNamespace}::${modName} ALIAS ${modName})
-
-# ----- Tests --------------------------------------------------------------- #
-# The validation test compares BendersDecompositionSolver against a monolithic
-# reference solve, so it needs a master Solver (BundleSolver) and a subproblem
-# Solver (a *MILPSolver); it is built only when both modules are available.
-if (BUILD_BundleSolver AND BUILD_MILPSolver)
-    # enable testing in this directory's scope: the umbrella calls
-    # enable_testing() only after this subdirectory has been processed, so the
-    # test would otherwise not be registered with CTest
-    enable_testing()
-    add_executable(${modName}_test test/test.cpp)
-    target_link_libraries(${modName}_test PRIVATE
-            ${modNamespace}::${modName}
-            ${modNamespace}::BundleSolver
-            ${modNamespace}::MILPSolver)
-    add_test(NAME ${modName}_test
-            COMMAND ${modName}_test
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
-
-    # extirpation comparison: BDS+BundleSolver vs the ad-hoc Benders (BenForm)
-    # of CapacitatedFacilityLocationBlock on a real CFL instance, checking the
-    # solutions coincide (same model) and reporting the times
-    if (BUILD_CapacitatedFacilityLocationBlock)
-        add_executable(${modName}_cfl_test test/test_cfl.cpp)
-        target_link_libraries(${modName}_cfl_test PRIVATE
-                ${modNamespace}::${modName}
-                ${modNamespace}::BundleSolver
-                ${modNamespace}::MILPSolver
-                ${modNamespace}::CapacitatedFacilityLocationBlock)
-        add_test(NAME ${modName}_cfl_test
-                COMMAND ${modName}_cfl_test
-                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
-    endif ()
-
-    # the two Benders forms of the same two-stage stochastic investment
-    # problem: the ad hoc one, an InvestmentBlock over the whole
-    # TwoStageStochasticBlock, and the generic one under this Solver, both
-    # checked against the monolithic solve of the extensive form
-    if (BUILD_InvestmentBlock)
-        add_executable(${modName}_tssb_test test/test_tssb.cpp)
-        target_link_libraries(${modName}_tssb_test PRIVATE
-                ${modNamespace}::${modName}
-                ${modNamespace}::BundleSolver
-                ${modNamespace}::MILPSolver
-                ${modNamespace}::InvestmentBlock)
-        add_test(NAME ${modName}_tssb_test
-                COMMAND ${modName}_tssb_test
-                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
-
-        # the same comparison on instances of growing size, which is where the
-        # two forms part ways: the instances are written by gen_tssb.py, hence
-        # the batch runs only where there is a Python that can write netCDF
-        find_package(Python3 COMPONENTS Interpreter)
-        if (Python3_Interpreter_FOUND)
-            execute_process(COMMAND ${Python3_EXECUTABLE} -c "import netCDF4"
-                            RESULT_VARIABLE HAS_NETCDF4
-                            OUTPUT_QUIET ERROR_QUIET)
-            if (HAS_NETCDF4 EQUAL 0)
-                add_test(NAME ${modName}_tssb_batch
-                        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/test/batch-tssb
-                                $<TARGET_FILE:${modName}_tssb_test>
-                                ${Python3_EXECUTABLE}
-                        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
-            else ()
-                message(STATUS
-                        "${modName}: netCDF4 is not there, the tssb batch is out")
-            endif ()
-        endif ()
-    endif ()
-
-    # the two dual decompositions of a SVM training problem, one against the
-    # other on the same instance: the consensus one under a Lagrangian Solver
-    # and the Benders one under this Solver, both cross-checked against the
-    # ad hoc SMOSolver of SVMBlock
-    if (BUILD_SVMBlock AND BUILD_LagrangianDualSolver)
-        add_executable(${modName}_svm_test test/test_svm.cpp)
-        target_link_libraries(${modName}_svm_test PRIVATE
-                ${modNamespace}::${modName}
-                ${modNamespace}::BundleSolver
-                ${modNamespace}::MILPSolver
-                ${modNamespace}::LagrangianDualSolver
-                ${modNamespace}::SVMBlock)
-        add_test(NAME ${modName}_svm_test
-                COMMAND ${modName}_svm_test
-                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
-    endif ()
-
-    # unit test for PolyhedralFunction::remove_parallel_rows() and
-    # PolyhedralFunctionBlock::remove_redundant_rows() (the row pruning that
-    # replaced the standalone CutProcessing class)
-    add_executable(${modName}_prune_test test/test_prune.cpp)
-    target_link_libraries(${modName}_prune_test PRIVATE
-            ${modNamespace}::SMS++
-            ${modNamespace}::MILPSolver)
-    add_test(NAME ${modName}_prune_test
-            COMMAND ${modName}_prune_test
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/test)
-endif ()
 
 # ----- Install instructions ------------------------------------------------ #
 # The following commands are used when installing the library

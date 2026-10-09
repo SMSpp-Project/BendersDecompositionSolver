@@ -54,11 +54,36 @@ infeasible subproblem whose complicating `Variable` are binary can be cut away
 by a combinatorial, or no-good, cut, which forbids the assignment at hand and
 asks nothing at all of the subproblem `Solver`; and it can be cut away by the
 cut of a *phase one*, i.e., of the problem that minimizes the violation of the
-coupling `Constraint` on a replica of the subproblem that gives each of them a
-slack of unit cost. Which cut a given infeasibility yields is decided by the
-normalization the multipliers are subject to, and there the unit costs are
-that normalization: the cut is then the one a bounded separation problem
-selects rather than whichever ray the `Solver` happened to return.
+coupling `Constraint` on the abstract copy the subproblem makes of itself,
+which gives each of them a slack with a cost. Which cut a given infeasibility
+yields is decided by the normalization the multipliers are subject to, and
+there the costs of the slacks are that normalization: the cut is then the one
+a bounded separation problem selects rather than whichever ray the `Solver`
+happened to return. The costs are either all one or, for each row, the
+inverse of its norm, which makes the cut independent of how the rows are
+scaled.
+
+Feasibility and optimality can also be separated *together*, by one
+cut-generating problem rather than by two mechanisms: the epigraph inequality
+joins the coupling `Constraint` that carry a slack in the phase one, the
+epigraph `Variable` enters its value function the way the complicating ones
+do, and the linearization in both, asked to be nonpositive, is the cut, which
+is a feasibility one where the multiplier of the epigraph inequality is zero
+and an optimality one where it is positive. This is the unified cut of
+Cornuejols and Lemarechal, of Fischetti, Salvagnin and Zanette and of
+Brandenberg and Stursberg, and what decides how it divides itself between the
+two roles is the ratio between the cost of the slack of the epigraph
+inequality and those of the coupling ones.
+
+Projecting the second-stage `Variable` out is not done on a copy: the
+complicating `Variable` are taken out of the `Constraint` of the subproblems,
+and in the MILP regime the `Block` itself is grafted into the master, so while
+that lasts the `Block` is not the problem it was. It can be asked to be given
+back as it was at the end of every `compute()`, which is what lets another
+`Solver` be attached to the same `Block` and cross-checked against this one,
+as a `BlockSolverConfig` with more than one `Solver` does; what that costs is
+the reformulation, paid at every `compute()`, and the cuts, which are pieces
+of the master and are disposed of with it.
 
 The master and the subproblem `Solver` are instantiated through the `Solver`
 factory and configured via `Configuration`, so that how the master and the
@@ -126,13 +151,22 @@ Algorithm: A Literature Review" *European Journal of Operational Research*
 These instructions will let you build `BendersDecompositionSolver`.
 
 
-The module also comes ready-made: `sudo apt install libsmspp-bds-dev` from the
-[PPA of the project](https://launchpad.net/~smspp/+archive/ubuntu/ppa), and
-`vcpkg install "smspp[core,bds]"` from the [SMS++ vcpkg
-registry](https://gitlab.com/smspp/vcpkg-registry); `conda install -c
-conda-forge smspp-project` and `brew install smspp`, from the [tap of the
-project](https://github.com/SMSpp-Project/homebrew-smspp), carry the whole
-framework. What follows is about building it yourself.
+The module also comes ready-made, in any of
+
+```sh
+sudo add-apt-repository ppa:smspp-project/smspp   # Ubuntu
+sudo apt install libsmspp-bds-dev
+
+conda install -c conda-forge smspp-project        # Linux, macOS, Windows
+
+brew tap SMSpp-Project/smspp                      # macOS, Linux
+brew install smspp
+
+vcpkg install "smspp[core,bds]"                   # from the sources
+```
+
+where apt and the port give the module alone, while conda and the tap carry
+the whole framework. What follows is about building it yourself.
 
 ### Requirements
 
