@@ -1,5 +1,5 @@
 # --------------------------------------------------------------------------- #
-#    Main CMake file for SMS++ BendersDecompositionSolver                      #
+#    Main CMake file for SMS++ BendersDecompositionSolver                     #
 #                                                                             #
 #    This file allows one to build the library using CMake.                   #
 #    To do so, you can use the following commands:                            #

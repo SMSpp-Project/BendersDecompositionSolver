@@ -5,20 +5,20 @@
 #   complete makefile of BendersDecompositionSolver                          #
 #                                                                            #
 #   The makefile defines internally all external libraries (comprised the    #
-#   SMS++ one) required by BendersDecompositionSolver. Accordingly, all       #
-#   necessary OBJ, H, -I directives, external libraries + -L< libdirs > are   #
+#   SMS++ one) required by BendersDecompositionSolver. Accordingly, all      #
+#   necessary OBJ, H, -I directives, external libraries + -L< libdirs > are  #
 #   added to the corresponding BnDSLV* macros.                               #
 #                                                                            #
 #   Input:  $(CC)        = compiler command                                  #
 #           $(SW)        = compiler options                                  #
-#           $(BnDSLVSDR) = the directory where BendersDecompositionSolver     #
+#           $(BnDSLVSDR) = the directory where BendersDecompositionSolver    #
 #                          source is                                         #
 #           $(BnDSLVODR) = the directory where the objects have to be put    #
 #                                                                            #
 #   Output: $(BnDSLVOBJ) = the final object(s) / library                     #
 #           $(BnDSLVLIB) = external libraries + -L< libdirs >                #
 #           $(BnDSLVH)   = the .h files to include                           #
-#           $(BnDSLVINC) = the -I$( BendersDecompositionSolver directory )    #
+#           $(BnDSLVINC) = the -I$( BendersDecompositionSolver directory )   #
 #                                                                            #
 #                              Antonio Frangioni                             #
 #                                Donato Meoli                                #

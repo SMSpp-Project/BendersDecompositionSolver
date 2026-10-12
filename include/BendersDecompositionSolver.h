@@ -703,7 +703,7 @@ class BendersDecompositionSolver : public CDASolver
   intLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
-/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
  /// public enum of the double parameters specific to BendersDecompositionSolver
  enum dbl_par_type_BDSlv {
@@ -720,7 +720,7 @@ class BendersDecompositionSolver : public CDASolver
   dblLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
-/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
  /// public enum of the vector-of-int parameters specific to this Solver
  /** Which sub-Block are the master and which Variable are the complicating
@@ -746,7 +746,7 @@ class BendersDecompositionSolver : public CDASolver
   vintLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
-/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
  /// public enum of the string parameters specific to BendersDecompositionSolver
  enum str_par_type_BDSlv {
@@ -766,7 +766,7 @@ class BendersDecompositionSolver : public CDASolver
   strLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
-/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
  [[nodiscard]] idx_type get_num_int_par( void ) const override;
 
