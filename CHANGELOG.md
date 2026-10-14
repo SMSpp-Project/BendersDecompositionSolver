@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- the loop of the MILP regime ends when the master gives back the incumbent
+  of the last round: a cut that the master satisfies only up to its own
+  tolerances was found violated again at the same point, added once more and
+  the loop never ended (on some CPUs, the barrier of GUROBI on the QP master
+  of the SVM batteries); the gap of that last round is what `dblRelAcc`
+  judges, `kOK` or `kLowPrecision`
+
 ## [0.2.0] - 2026-10-09
 
 ### Added

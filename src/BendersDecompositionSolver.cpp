@@ -1977,6 +1977,27 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 	 << std::setprecision( prec ) << std::endl;
   };
 
+ /* A cut is violated by more than tol at an incumbent where the master,
+  * which has it already, only satisfies it up to its own tolerances: added
+  * once more, it gives back the same incumbent, and the loop would go on
+  * forever. Hence, when the master gives back the incumbent of the last
+  * round, no optimality cut is added again and the round is the last one,
+  * with the gap that finish() finds. */
+
+ std::vector< double > last_x , last_eta;
+
+ auto same_incumbent = [ & ]() {
+  std::vector< double > x( nx ) , eta( v_eta->size() );
+  for( Index i = 0 ; i < nx ; ++i )
+   x[ i ] = v_x[ i ]->get_value();
+  for( Index k = 0 ; k < eta.size() ; ++k )
+   eta[ k ] = (*v_eta)[ k ].get_value();
+  const bool same = ( x == last_x ) && ( eta == last_eta );
+  last_x = std::move( x );
+  last_eta = std::move( eta );
+  return( same );
+  };
+
  for( int round = 0 ; round < f_max_rounds ; ++round ) {
 
   lowp = false;
@@ -1997,6 +2018,8 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   f_master_solver->get_var_solution();
 
   f_value = f_master_solver->get_lb();
+
+  const bool stalled = same_incumbent();
 
   /* The unified cuts are separated on their own: one problem per subproblem,
    * telling feasibility and optimality apart by itself, hence neither the
@@ -2020,7 +2043,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
      return( st );
     }
 
-   if( added )
+   if( added && ( ! stalled ) )
     continue;
 
    /* The separation problems say that the incumbent is in the epigraph of
@@ -2057,7 +2080,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
     const double eta = (*v_eta)[ k ].get_value();
     excess += v_BF[ k ]->get_value() - eta;
-    if( violated( at_x( g , alpha ) , eta ) ) {
+    if( ( ! stalled ) && violated( at_x( g , alpha ) , eta ) ) {
      add_cut( & (*v_eta)[ k ] , g , alpha );
      ++late;
      }
@@ -2113,7 +2136,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    // the cut is violated only if the epigraph Variable is below the cut
    const double eta = (*v_eta)[ k ].get_value();
    excess += fk - eta;
-   if( violated( at_x( g , alpha ) , eta ) ) {
+   if( ( ! stalled ) && violated( at_x( g , alpha ) , eta ) ) {
     add_cut( & (*v_eta)[ k ] , g , alpha );
     ++added;
     }
@@ -2125,7 +2148,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   if( ( f_cut_type == eSingleCut ) && all_feasible ) {
    const double eta = (*v_eta)[ 0 ].get_value();
    excess = fs - eta;
-   if( violated( at_x( gs , as ) , eta ) ) {
+   if( ( ! stalled ) && violated( at_x( gs , as ) , eta ) ) {
     add_cut( & (*v_eta)[ 0 ] , gs , as );
     ++added;
     }
