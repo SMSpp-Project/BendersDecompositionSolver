@@ -213,9 +213,11 @@ namespace SMSpp_di_unipi_it
  *
  * In both regimes dblMaxTime limits a whole call to compute(): the master
  * is given what is left of it, or the dblMaxTime of its own ComputeConfig
- * if that is shorter, and in the MILP regime the loop stops with kStopTime
- * at the first round that finds the time over, the subproblems of a round
- * being solved all in any case.
+ * if that is shorter, and so is each subproblem, by the bundle-type master
+ * in the convex regime and by this Solver in the MILP one, where the loop
+ * stops with kStopTime at the first round that finds the time over, or as
+ * soon as a subproblem stops on it. The Solver of the upper bound recovery
+ * is given what is left, too [see strRecoveryBSC].
  *
  * In both regimes the BendersBFunction objects are the same; only the master
  * assembly and the loop driver differ. The "inner" solver of the master is
@@ -932,6 +934,15 @@ class BendersDecompositionSolver : public CDASolver
 
  void master_time_limit( void );
 
+ /// give a subproblem what is left of dblMaxTime
+ /** Gives the Solver of \p bf the shorter of what is left of dblMaxTime and
+  * of \p own, the dblMaxTime that Solver has of its own. \p own is read the
+  * first time it is needed, i.e., before any change, and a negative value
+  * says it is not read yet; when this Solver has no time limit and \p own
+  * has never been read, nothing is touched. */
+
+ void sub_time_limit( BendersBFunction * bf , double & own );
+
  /// apply to \p block the BlockSolverConfig, or meta-configuration, in \p fn
  /** Applies to \p block the Configuration in the file \p fn, which is either
   * a BlockSolverConfig, applied as it is, or a "meta-configuration", i.e., a
@@ -1059,6 +1070,11 @@ class BendersDecompositionSolver : public CDASolver
 
  double f_master_max_time = Inf< double >();
                            ///< the dblMaxTime the master is configured with
+
+ /// the dblMaxTime the Solver of each v_BF and v_BF1 is configured with
+ /// [see sub_time_limit()]
+ std::vector< double > v_BF_max_time;
+ std::vector< double > v_BF1_max_time;
 
  std::chrono::steady_clock::time_point f_start;  ///< when compute() began
 

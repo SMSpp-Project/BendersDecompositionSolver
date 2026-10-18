@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the SVM batteries); the gap of that last round is what `dblRelAcc`
   judges, `kOK` or `kLowPrecision`
 
+- in the MILP regime each subproblem is given what is left of `dblMaxTime`,
+  or its own time limit if that is shorter, as the master already was: the
+  time was only checked between rounds, so that a round of subproblems that
+  are MILPs (say, a unit commitment) could go on far beyond the limit; the
+  Solver of `strRecoveryBSC` is given what is left, too
+
 ## [0.2.0] - 2026-10-09
 
 ### Added

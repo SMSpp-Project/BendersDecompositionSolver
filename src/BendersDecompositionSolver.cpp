@@ -265,8 +265,10 @@ void BendersDecompositionSolver::dismantle( void )
 
  v_BF1.clear();
  v_phase1.clear();
+ v_BF1_max_time.clear();
 
  v_BF.clear();
+ v_BF_max_time.clear();
  v_sub.clear();
  f_ignored.clear();
  v_x.clear();
@@ -460,6 +462,24 @@ void BendersDecompositionSolver::master_time_limit( void )
  f_master_solver->set_par( dblMaxTime , std::min( f_master_max_time , left ) );
 
  }  // end( BendersDecompositionSolver::master_time_limit )
+
+/*--------------------------------------------------------------------------*/
+
+void BendersDecompositionSolver::sub_time_limit( BendersBFunction * bf ,
+						 double & own )
+{
+ if( own < 0 ) {
+  if( f_max_time >= Inf< double >() )
+   return;
+  own = bf->get_dbl_par( Function::dblMaxTime );
+  }
+
+ // with no time limit of this Solver, the one of the subproblem is given back
+ const double left = f_max_time < Inf< double >() ?
+  std::max( f_max_time - get_elapsed_time() , 0.0 ) : Inf< double >();
+ bf->set_par( Function::dblMaxTime , std::min( own , left ) );
+
+ }  // end( BendersDecompositionSolver::sub_time_limit )
 
 /*--------------------------------------------------------------------------*/
 /*------------------------- HANDLING PARAMETERS ----------------------------*/
@@ -867,6 +887,9 @@ void BendersDecompositionSolver::reformulate( void )
 
  v_BF1.assign( p1 ? NS : 0 , nullptr );
  v_phase1.assign( p1 ? NS : 0 , nullptr );
+
+ v_BF_max_time.assign( NS , -1 );
+ v_BF1_max_time.assign( p1 ? NS : 0 , -1 );
 
  /* Once its Variable are projected out, a subproblem is no longer a part of
   * the master problem, but it is still a sub-Block of (B): it is the master
@@ -1620,6 +1643,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
     * way, no subproblem is feasible for any x, hence (B) is not, and the
     * status travels up as it comes. */
 
+   sub_time_limit( bf , v_BF1_max_time[ k ] );
    const int st = bf->compute();
    if( ( st != kOK ) && ( st != kLowPrecision ) ) {
     status = st;
@@ -1718,6 +1742,9 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    std::vector< double > g1( nx , 0 );
    double alpha1 = 0;
 
+   if( bf )
+    sub_time_limit( bf , v_BF1_max_time[ kk ] );
+
    if( bf && ( bf->compute() == kOK ) &&
        ( bf->has_linearization( true ) ||
          bf->compute_new_linearization( true ) ) ) {
@@ -1766,6 +1793,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
                        bool & diagonal ) {
   auto bf = v_BF[ k ];
 
+  sub_time_limit( bf , v_BF_max_time[ k ] );
   const int st = bf->compute();
 
   // a subproblem solved to less than the accuracy asked is taken, as the
@@ -2215,9 +2243,20 @@ int BendersDecompositionSolver::recover_upper_bound( void )
   return( ( st == kOK ) || ( st == kLowPrecision ) );
   };
 
+ // the Solver of the recovery is a new one at each call, and so is the time
+ // limit it has of its own, which what is left of dblMaxTime can shorten
+ const auto shorten = [ this ]( BendersBFunction * bf ) {
+  if( f_max_time >= Inf< double >() )
+   return;
+  const double left = std::max( f_max_time - get_elapsed_time() , 0.0 );
+  bf->set_par( Function::dblMaxTime ,
+	       std::min( bf->get_dbl_par( Function::dblMaxTime ) , left ) );
+  };
+
  int status = kOK;
  for( auto bf : v_BF ) {
   if( ! milp ) {
+   shorten( bf );
    const int st = bf->compute();
    if( ! ok( st ) ) {
     status = st;
@@ -2232,6 +2271,7 @@ int BendersDecompositionSolver::recover_upper_bound( void )
 
   const auto used = bf->get_int_par( BendersBFunction::intSolverIndex );
   bf->set_par( BendersBFunction::intSolverIndex , int( nslv ) );
+  shorten( bf );
   const int st = bf->compute();
   if( ok( st ) )
    ub += bf->get_value();
