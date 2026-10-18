@@ -1,5 +1,10 @@
 # BendersDecompositionSolver
 
+[![Pipeline](https://gitlab.com/smspp/bendersdecompositionsolver/badges/develop/pipeline.svg)](https://gitlab.com/smspp/bendersdecompositionsolver/-/pipelines?ref=develop)
+[![Documentation](https://img.shields.io/badge/docs-Doxygen-blue)](https://smspp.gitlab.io/smspp-project/)
+[![C++ Standard](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
+[![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
+
 Definition and implementation of the `BendersDecompositionSolver` class, which
 implements the `CDASolver` interface within the SMS++ framework to automate the
 Benders decomposition of a block-structured problem.
