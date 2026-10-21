@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- the C++20 module `smspp.bendersdecompositionsolver`
+  (`src/BendersDecompositionSolver.cppm`), which exports every name that the
+  headers declare at namespace scope and re-exports `smspp`, so that a
+  source file can write `import smspp.bendersdecompositionsolver;` in place
+  of the `#include` of the headers; it is built with the CMake option
+  `SMSpp_BUILD_MODULE`, as the target
+  `SMS++::BendersDecompositionSolver_module`
+
 ### Fixed
 
 - the loop of the MILP regime ends when the master gives back the incumbent
