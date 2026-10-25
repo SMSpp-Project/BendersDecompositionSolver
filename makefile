@@ -40,6 +40,12 @@ BnDSLVINC = -I$(BnDSLVSDR)/include
 
 BnDSLVH   = $(BnDSLVSDR)/include/BendersDecompositionSolver.h
 
+# the C++20 module smspp.bendersdecompositionsolver - - - - - - - - - - - - -
+# [see makefile-mod of SMS++]
+
+$(eval $(call SMSppMODrule,BnDSLV,$(BnDSLVSDR),BendersDecompositionSolver,\
+	smspp.bendersdecompositionsolver,$(SMS++MOD)))
+
 # clean - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 clean::
