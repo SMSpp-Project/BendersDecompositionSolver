@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- the phase one of a subproblem gives its `Function` to the `Objective`
+  the replica took from the subproblem, which the replica owns, instead of
+  deleting it and setting a new one that nobody deleted
+
 - the loop of the MILP regime ends when the master gives back the incumbent
   of the last round: a cut that the master satisfies only up to its own
   tolerances was found violated again at the same point, added once more and

@@ -1314,11 +1314,20 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
  if( s0 )
   olf->add_variable( s0 , f_epi_weight , eNoMod );
 
- auto obj = new FRealObjective( rep , olf );
- obj->set_sense( Objective::eMin , eNoMod );
+ /* The Objective the copy took from the subproblem is the copy's own, which
+  * deletes it [see AbstractBlock::mirror()]: it is given the new Function,
+  * the old one going. Only a copy that could not take it gets one made
+  * here, which outlives the copy. */
 
- delete rep->get_objective();   // the one the copy took from the subproblem
- rep->set_objective( obj , eNoMod );
+ if( auto obj = dynamic_cast< FRealObjective * >( rep->get_objective() ) ) {
+  obj->set_function( olf , eNoMod , true );
+  obj->set_sense( Objective::eMin , eNoMod );
+  }
+ else {
+  auto nobj = new FRealObjective( rep , olf );
+  nobj->set_sense( Objective::eMin , eNoMod );
+  rep->set_objective( nobj , eNoMod );
+  }
 
  BendersBFunction::VarVector vx1( v_x );
  if( f_unified != eNoUnified )   // the unified cut is a cut in ( x , eta )
