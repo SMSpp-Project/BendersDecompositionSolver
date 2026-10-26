@@ -44,7 +44,7 @@ BnDSLVH   = $(BnDSLVSDR)/include/BendersDecompositionSolver.h
 # [see makefile-mod of SMS++]
 
 $(eval $(call SMSppMODrule,BnDSLV,$(BnDSLVSDR),BendersDecompositionSolver,\
-	smspp.bendersdecompositionsolver,$(SMS++MOD)))
+	smspp.bendersdecompositionsolver,SMS++))
 
 # clean - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
