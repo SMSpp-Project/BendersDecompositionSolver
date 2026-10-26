@@ -18,9 +18,7 @@
  *
  * available at
  *
- * \link
  *  http://www.di.unipi.it/~frangio/abstracts.html#COAP15
- * \endlink
  *
  * for the stabilized (and possibly inexact) variant of the method, in which
  * the master problem is solved by a bundle-type approach, and to
@@ -31,9 +29,7 @@
  *
  * available at
  *
- * \link
  *  http://www.di.unipi.it/~frangio/abstracts.html#ManSci18
- * \endlink
  *
  * for the case in which the master problem is a (stabilized) combinatorial
  * problem, solved as a MILP with Benders cuts added as lazy constraints. The
@@ -130,8 +126,10 @@ namespace SMSpp_di_unipi_it
  *
  * The Block (B) is assumed to have the following structure:
  *
- *  (O)   min / max { d( x ) + \sum_{k \in K} c^k( y^k ) :
- *                    x \in X , ( x , y^k ) \in Z^k , k \in K }
+ * \f[
+ *  (O) \quad \min / \max \{\, d( x ) + \sum_{k \in K} c^k( y^k ) :
+ *                 x \in X \,,\, ( x , y^k ) \in Z^k \,,\, k \in K \,\}
+ * \f]
  *
  * where:
  *
@@ -141,15 +139,18 @@ namespace SMSpp_di_unipi_it
  * - d( x ), together with the (first-stage) Constraint X over x, is the
  *   Objective and the Constraint of the root (B);
  *
- * - each sub-Block (B^k), k \in K, is a *subproblem*: it has its own Variable
- *   y^k, its own Objective c^k( y^k ) and its own (second-stage) Constraint;
- *   it is coupled to the master only through the appearance of (some of) the
- *   x in (some of) its Constraint, i.e., Z^k is described by Constraint of
- *   the form l^k <= F^k x + E^k( y^k ) <= u^k .
+ * - each sub-Block (B^k), \f$ k \in K \f$, is a *subproblem*: it has its own
+ *   Variable y^k, its own Objective c^k( y^k ) and its own (second-stage)
+ *   Constraint; it is coupled to the master only through the appearance of
+ *   (some of) the x in (some of) its Constraint, i.e., Z^k is described by
+ *   Constraint of the form l^k <= F^k x + E^k( y^k ) <= u^k .
  *
  * By projecting out y^k, (O) is reformulated as
  *
- *  (O')  min / max { d( x ) + \sum_{k \in K} v^k( x ) : x \in X }
+ * \f[
+ *  (O') \quad \min / \max \{\, d( x ) + \sum_{k \in K} v^k( x ) :
+ *                  x \in X \,\}
+ * \f]
  *
  * where the value function of the k-th subproblem
  *
@@ -184,11 +185,11 @@ namespace SMSpp_di_unipi_it
  * Two regimes are supported for how the master (O') is solved, selected by
  * the int_BDSlv_Regime parameter:
  *
- * - convex regime: the master Objective is d( x ) + \sum_k v^k( x ), with
- *   the v^k() entering as C05Function; the master is handed to a CDASolver
- *   of the bundle family (e.g., BundleSolver), which drives the cutting-plane
- *   / stabilized cutting-plane loop pulling linearizations from the
- *   BendersBFunction. This is the setting of the COAP15 reference. With
+ * - convex regime: the master Objective is \f$ d( x ) + \sum_k v^k( x ) \f$,
+ *   with the v^k() entering as C05Function; the master is handed to a
+ *   CDASolver of the bundle family (e.g., BundleSolver), which drives the
+ *   cutting-plane / stabilized cutting-plane loop pulling linearizations from
+ *   the BendersBFunction. This is the setting of the COAP15 reference. With
  *   continuous x this is the convex problem; with integer x it is either its
  *   continuous relaxation or, with a BundleSolver that keeps them integer
  *   (intIntVars == 1, with a proximal or trust-region master that a
@@ -361,10 +362,10 @@ class BendersDecompositionSolver : public CDASolver
   * to return is arbitrary. A cut that is *not* dominated by any other is
   * called Pareto-optimal.
   *
-  * [
-  *   v^k( x ) \geq lpha + g^	op x \quad \mbox{dominates} \quad
-  *   v^k( x ) \geq lpha' + g'^	op x
-  * ]
+  * \f[
+  *   v^k( x ) \geq \alpha + g^\top x \quad \mbox{dominates} \quad
+  *   v^k( x ) \geq \alpha' + g'^\top x
+  * \f]
   * when it is above it everywhere on the master feasible set, so which cut
   * is Pareto-optimal depends on that set and not on the incumbent alone.
   * Magnanti and Wong obtain one by maximizing the cut at a *core point*, a
@@ -875,7 +876,7 @@ class BendersDecompositionSolver : public CDASolver
                        const std::vector< double > & b ,
                        const std::vector< int > & sides );
 
- /// assemble the convex master Objective d( x ) + \sum_k v^k( x )
+ /// assemble the convex master Objective \f$ d( x ) + \sum_k v^k( x ) \f$
  void build_convex_master( void );
 
  /// assemble the MILP master with epigraph Variable and the cut family
