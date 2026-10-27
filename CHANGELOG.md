@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- with the feasibility cuts of the phase one (`int_BDSlv_FeasCut` 3) an
+  infeasible subproblem whose Solver gives no Farkas certificate stopped
+  the run, the certificate being asked for before the phase one; it is now
+  asked for only if the cut of the phase one does not cut the incumbent
+
 - the phase one of a subproblem gives its `Function` to the `Objective`
   the replica took from the subproblem, which the replica owns, instead of
   deleting it and setting a new one that nobody deleted

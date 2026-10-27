@@ -1730,6 +1730,19 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   * current assignment and nothing else, hence it is written out of the
   * incumbent rather than out of any certificate. */
 
+ /* An infeasible subproblem whose Solver gives no certificate, when one is
+  * needed, cannot be cut away. */
+
+ auto no_certificate = [ & ]( Index k ) {
+  throw( std::logic_error( _prfx + "subproblem " + std::to_string( k ) +
+                           " is infeasible and its Solver gives no "
+                           "unbounded dual direction, hence no feasibility "
+                           "cut can be generated: switch the presolve of "
+                           "the subproblem Solver off, it detecting the "
+                           "infeasibility on the reduced problem and "
+                           "leaving no certificate for the original one" ) );
+  };
+
  auto add_feasibility_cut = [ & ]( Index kk , const std::vector< double > & g ,
                                    double alpha , bool check = true ) {
   if( f_feas_cut == eAlwaysFeasible )
@@ -1770,6 +1783,10 @@ int BendersDecompositionSolver::solve_MILP_master( void )
      }
     }
 
+   // the certificate is there only if the Solver of the subproblem gives
+   // one [see get_cut()]
+   if( g.empty() )
+    no_certificate( kk );
    add_cut( nullptr , g , alpha );
    return;
    }
@@ -1825,13 +1842,14 @@ int BendersDecompositionSolver::solve_MILP_master( void )
      throw( std::logic_error( _prfx + "no linearization of subproblem " +
                               std::to_string( k ) ) );
 
-    throw( std::logic_error( _prfx + "subproblem " + std::to_string( k ) +
-                             " is infeasible and its Solver gives no "
-                             "unbounded dual direction, hence no feasibility "
-                             "cut can be generated: switch the presolve of "
-                             "the subproblem Solver off, it detecting the "
-                             "infeasibility on the reduced problem and "
-                             "leaving no certificate for the original one" ) );
+    // the phase one needs no certificate unless its cut does not cut the
+    // incumbent, which is when its absence is an error [see
+    // add_feasibility_cut()]: an empty g says it is not there
+    if( f_feas_cut == ePhaseOne ) {
+     g.clear();
+     return( int( kOK ) );
+     }
+    no_certificate( k );
     }
 
   bf->get_linearization_coefficients( g.data() , Range( 0 , nx ) );
