@@ -143,7 +143,9 @@ namespace SMSpp_di_unipi_it
  *   Variable y^k, its own Objective c^k( y^k ) and its own (second-stage)
  *   Constraint; it is coupled to the master only through the appearance of
  *   (some of) the x in (some of) its Constraint, i.e., Z^k is described by
- *   Constraint of the form l^k <= F^k x + E^k( y^k ) <= u^k .
+ *   Constraint of the form l^k <= F^k x + E^k( y^k ) <= u^k . A sub-Block
+ *   where no x appears (F^k = 0) is allowed: its value function is then a
+ *   constant, which its first cut gives whole.
  *
  * By projecting out y^k, (O) is reformulated as
  *

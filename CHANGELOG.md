@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- a sub-Block in which no Variable of the master appears is accepted, its
+  value function being a constant, instead of stopping the reformulation
+  with `std::logic_error`
+
 - the pipeline builds the module also with its makefiles, after CMake, and
   runs on a change of the makefiles too [see `ci/makefile` of the umbrella]
 
@@ -34,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   build goes on with the headers [see `cmake/CheckModule.cmake` of SMS++]
 
 ### Fixed
+
+- the upper bound of the MILP regime is the value of the incumbent of the
+  master (`get_ub()`) plus the excess of the value functions, no longer its
+  lower bound, which a MILP master stopped with a gap leaves below the
+  value of the incumbent
 
 - with the feasibility cuts of the phase one (`int_BDSlv_FeasCut` 3) an
   infeasible subproblem whose Solver gives no Farkas certificate stopped

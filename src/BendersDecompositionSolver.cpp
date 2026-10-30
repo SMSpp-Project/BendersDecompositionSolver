@@ -1029,12 +1029,6 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
  sub->for_each_constraint_group( [ & scan ]( const BaseGroup & group ) {
    group.for_each_as< FRowConstraint >( scan ); } );
 
- if( cns.empty() )
-  throw( std::logic_error( _prfx + "sub-Block " +
-                           std::to_string( v_sub[ k ] ) +
-                           " is not coupled to the master by any linear "
-                           "Constraint" ) );
-
  /* The phase one is built before the mapping is handed over, it being built
   * on the same one. */
 
@@ -2008,16 +2002,18 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
  /* One line of log per round, if a log is attached: the lower bound of the
   * master, the best upper bound found so far, the cuts added in the round
-  * (and in all) and the time. The upper bound of a round is the master
-  * value plus how much the value functions are above their epigraph
+  * (and in all) and the time. The upper bound of a round is the value of
+  * the incumbent of the master (above its lower bound in a MILP stopped
+  * with a gap) plus how much the value functions are above their epigraph
   * Variable at the incumbent, which is the value of the incumbent only when
   * every subproblem has one, i.e., when none has given a feasibility cut. */
 
  double best_ub = Inf< double >();
+ double inc_value = Inf< double >();
 
  auto log_round = [ & ]( Index added , bool feasible , double excess ) {
   if( feasible )
-   best_ub = std::min( best_ub , f_value + std::max( excess , 0.0 ) );
+   best_ub = std::min( best_ub , inc_value + std::max( excess , 0.0 ) );
   if( ! f_log )
    return;
   const auto prec = f_log->precision();
@@ -2073,6 +2069,9 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   f_master_solver->get_var_solution();
 
   f_value = f_master_solver->get_lb();
+  inc_value = f_master_solver->get_ub();
+  if( inc_value == Inf< double >() )
+   inc_value = f_value;
 
   const bool stalled = same_incumbent();
 
