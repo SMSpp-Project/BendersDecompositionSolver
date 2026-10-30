@@ -1223,12 +1223,17 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
  double oct = 0;
  bool nonlinear = false;
 
- std::function< void( Block * ) > strip = [ & ]( Block * b ) {
+ // each Objective with its weight [see Block::set_objective_weight()],
+ // the product of the weights from the replica down to its Block, that of
+ // the replica comprised, as the BendersBFunction of the subproblem has it
+ std::function< void( Block * , double ) > strip = [ & ]( Block * b ,
+							   double w ) {
   if( auto ob = dynamic_cast< FRealObjective * >( b->get_objective() ) ) {
    if( auto lf = dynamic_cast< LinearFunction * >( ob->get_function() ) ) {
     for( auto & vp : lf->get_v_var() )
-     ocp.emplace_back( const_cast< ColVariable * >( vp.first ) , vp.second );
-    oct += lf->get_constant_term();
+     ocp.emplace_back( const_cast< ColVariable * >( vp.first ) ,
+                       w * vp.second );
+    oct += w * lf->get_constant_term();
     }
    else
     if( ob->get_function() )
@@ -1238,10 +1243,11 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
    }
 
   for( Index i = 0 ; i < b->get_number_nested_Blocks() ; ++i )
-   strip( b->get_nested_Block( i ) );
+   strip( b->get_nested_Block( i ) ,
+          w * b->get_nested_Block( i )->get_objective_weight() );
   };
 
- strip( rep );
+ strip( rep , rep->get_objective_weight() );
 
  ColVariable * s0 = nullptr;
 
@@ -1430,10 +1436,18 @@ void BendersDecompositionSolver::build_MILP_master( void )
   * Block it is made of, this is an Objective of the master Block alone, and
   * the one of (B) stays what it was. */
 
+ /* The master Solver sees (B) as a sub-Block of the master, hence with the
+  * weight of its Objective [see Block::set_objective_weight()], which as
+  * the Block of this Solver it does not have: the epigraph Variable, which
+  * the cuts keep in the scale of the value functions, are given that
+  * weight in turn, so that the master is the problem times it, and its
+  * bound is divided by it [see solve_MILP_master()]. */
+
  LinearFunction::v_coeff_pair cp;
  cp.reserve( neta );
+ const double wB = f_Block->get_objective_weight();
  for( auto & eta : *v_eta )
-  cp.emplace_back( & eta , 1 );
+  cp.emplace_back( & eta , wB );
 
  auto obj = new FRealObjective( f_master ,
                                 new LinearFunction( std::move( cp ) ) );
@@ -2013,7 +2027,8 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
  auto log_round = [ & ]( Index added , bool feasible , double excess ) {
   if( feasible )
-   best_ub = std::min( best_ub , inc_value + std::max( excess , 0.0 ) );
+   best_ub = std::min( best_ub , inc_value + std::max( excess , 0.0 ) /
+                       f_Block->get_objective_weight() );
   if( ! f_log )
    return;
   const auto prec = f_log->precision();
@@ -2068,8 +2083,10 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   f_master_solver->get_var_solution();
 
-  f_value = f_master_solver->get_lb();
-  inc_value = f_master_solver->get_ub();
+  // the MILP master is the problem times the weight of (B) [see
+  // build_MILP_master()]
+  f_value = f_master_solver->get_lb() / f_Block->get_objective_weight();
+  inc_value = f_master_solver->get_ub() / f_Block->get_objective_weight();
   if( inc_value == Inf< double >() )
    inc_value = f_value;
 

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- the weight of the Objective of a `Block` [see
+  `Block::set_objective_weight()`]: the MILP master, in which (B) is a
+  sub-Block, gives the epigraph Variable the weight of (B), which as the Block
+  of this Solver it does not have, and its bound is divided by it; the phase
+  one collects the cost of each Block of the subproblem with its weight; the
+  subproblems have theirs through their `BendersBFunction`
+
 - the makefiles build the C++20 module `smspp.bendersdecompositionsolver`
   when `SMSppMOD` is not empty (e.g., `make SMSppMOD=1`), with clang++ 16
   or later [see `lib/makefile-mod` of SMS++]
