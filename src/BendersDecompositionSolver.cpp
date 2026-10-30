@@ -82,7 +82,9 @@ static const std::vector< std::string > int_pars_BDSlv = {
 static const std::vector< std::string > dbl_pars_BDSlv = {
  "dbl_BDSlv_CoreMove" ,
  "dbl_BDSlv_EpiWeight" ,
- "dbl_BDSlv_ParetoMu"
+ "dbl_BDSlv_ParetoMu" ,
+ "dblTRRadius" ,
+ "dblCutTol"
  };
 
 static const std::vector< std::string > vint_pars_BDSlv = {
@@ -264,7 +266,16 @@ void BendersDecompositionSolver::dismantle( void )
    sub->set_f_Block( f_Block );
    }
 
- if( f_master == f_Block ) {
+ if( f_mirror ) {
+  /* The master is the copy of (B), which owns the copies of the subproblems
+   * and the value-function sub-Block, and through their Objective the
+   * BendersBFunction: deleting it disposes of all of them. */
+
+  delete f_mirror;
+  f_mirror = nullptr;
+  v_wrap.clear();
+  }
+ else if( f_master == f_Block ) {
   /* The value-function sub-Block have been added to (B), and each of them
    * owns, through its Objective, the BendersBFunction it carries: deleting
    * them is deleting those, and (B) is left with the sub-Block it had. */
@@ -298,6 +309,14 @@ void BendersDecompositionSolver::dismantle( void )
    v_cuts->clear();
    }
 
+  // the same holds for the rows of the trust region, which are over the x
+  if( v_trust ) {
+   for( auto & row : *v_trust )
+    row.set_function( nullptr , eNoMod );
+
+   v_trust->clear();
+   }
+
   for( auto bf : v_BF )
    delete bf;
 
@@ -307,6 +326,7 @@ void BendersDecompositionSolver::dismantle( void )
   delete f_master;
   v_eta = nullptr;
   v_cuts = nullptr;
+  v_trust = nullptr;
   }
 
  /* The phase-one replicas are this Solver's own, and each of them is owned by
@@ -324,6 +344,7 @@ void BendersDecompositionSolver::dismantle( void )
  v_sub.clear();
  f_ignored.clear();
  v_x.clear();
+ v_mx.clear();
  x_index.clear();
  f_master = nullptr;
  f_Block_father = nullptr;
@@ -451,6 +472,20 @@ void BendersDecompositionSolver::get_var_solution( Configuration * solc )
 
  if( f_master_solver )
   f_master_solver->get_var_solution( solc );
+
+ // the master is a copy of (B), whose x take the values of their copies
+ if( f_mirror && f_master_solver )
+  for( Index i = 0 ; i < v_x.size() ; ++i )
+   v_x[ i ]->set_value( v_mx[ i ]->get_value() );
+
+ /* A bundle-type master evaluates the value functions at its trial points,
+  * the last of which need not be the solution it returns, i.e., its
+  * stability center: the y^k read below have to be those of the solution,
+  * whence the value functions are evaluated there once more. */
+
+ if( ( f_regime == eConvexMaster ) && f_master_solver )
+  for( auto bf : v_BF )
+   bf->compute();
 
  for( auto bf : v_BF )
   if( auto sub = bf->get_inner_block() )
@@ -594,6 +629,8 @@ double BendersDecompositionSolver::get_dflt_dbl_par( idx_type par ) const
   case( dbl_BDSlv_CoreMove ): return( 0.5 );
   case( dbl_BDSlv_EpiWeight ): return( 1 );
   case( dbl_BDSlv_ParetoMu ): return( 0.1 );
+  case( dblTRRadius ):        return( 0 );
+  case( dblCutTol ):          return( 1e-9 );
   default:                    return( CDASolver::get_dflt_dbl_par( par ) );
   }
  }
@@ -740,6 +777,8 @@ void BendersDecompositionSolver::set_par( idx_type par , double value )
   case( dbl_BDSlv_CoreMove ): f_core_move = value; return;
   case( dbl_BDSlv_EpiWeight ): f_epi_weight = value; return;
   case( dbl_BDSlv_ParetoMu ): f_pareto_mu = value; return;
+  case( dblTRRadius ):        f_tr_radius = value; return;
+  case( dblCutTol ):          f_cut_tol = value;   return;
   case( dblRelAcc ):          f_rel_acc = value;   return;
   case( dblMaxTime ):         f_max_time = value;  return;
   default:                    CDASolver::set_par( par , value );
@@ -800,6 +839,8 @@ double BendersDecompositionSolver::get_dbl_par( idx_type par ) const
   case( dbl_BDSlv_CoreMove ):  return( f_core_move );
   case( dbl_BDSlv_EpiWeight ): return( f_epi_weight );
   case( dbl_BDSlv_ParetoMu ):  return( f_pareto_mu );
+  case( dblTRRadius ):         return( f_tr_radius );
+  case( dblCutTol ):           return( f_cut_tol );
   case( dblRelAcc ):           return( f_rel_acc );
   case( dblMaxTime ):          return( f_max_time );
   default:                     return( CDASolver::get_dbl_par( par ) );
@@ -845,6 +886,11 @@ void BendersDecompositionSolver::reformulate( void )
 
  if( ! f_Block )
   throw( std::logic_error( _prfx + "no Block is set" ) );
+
+ // the abstract representation, which no other Solver may have asked for
+ f_Block->generate_abstract_variables();
+ f_Block->generate_abstract_constraints();
+ f_Block->generate_objective();
 
  /* The complicating Variable x are the ColVariable of the root Block, in the
   * order in which it exposes them: the root is the master, and everything
@@ -949,8 +995,32 @@ void BendersDecompositionSolver::reformulate( void )
 
  f_ignored.clear();
 
+ /* The convex master has to be an AbstractBlock [see build_convex_master()]:
+  * if (B) is not one, the master is a copy of it, taken before the x leave
+  * the subproblems, and the value functions are written in the copies of
+  * the x, which are what the master Solver reads; the copies of the
+  * subproblems are ignored as the subproblems are. A copy that is only a
+  * relaxation of (B) is no master of (B). */
+
+ v_mx = v_x;
+ if( ( f_regime == eConvexMaster ) &&
+     ( ! dynamic_cast< AbstractBlock * >( f_Block ) ) ) {
+  f_mirror = new AbstractBlock;
+  f_mirror->mirror( f_Block );
+  if( ! f_mirror->get_mirror_issues().empty() ) {
+   const auto why = f_mirror->get_mirror_issues().front();
+   delete f_mirror;
+   f_mirror = nullptr;
+   throw( std::logic_error( _prfx + "the convex master is a copy of the "
+                            "Block, which cannot be copied: " + why ) );
+   }
+  for( auto & x : v_mx )
+   x = f_mirror->mirror_of( x );
+  }
+
  for( Index k = 0 ; k < NS ; ++k ) {
-  f_ignored.insert( f_Block->get_nested_Block( v_sub[ k ] ) );
+  f_ignored.insert( f_mirror ? f_mirror->get_nested_Block( v_sub[ k ] )
+                             : f_Block->get_nested_Block( v_sub[ k ] ) );
   build_BendersBFunction( k );
   }
 
@@ -1105,7 +1175,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
   }
 
  v_BF[ k ] = new BendersBFunction(
-  sub , BendersBFunction::VarVector( v_x ) , std::move( A ) , std::move( b ) ,
+  sub , BendersBFunction::VarVector( v_mx ) , std::move( A ) , std::move( b ) ,
   std::move( cns ) , std::move( sides ) , nullptr );
 
  }  // end( BendersDecompositionSolver::build_BendersBFunction )
@@ -1429,11 +1499,10 @@ void BendersDecompositionSolver::build_convex_master( void )
   * (B) keeps owning them and the value-function sub-Block are simply added
   * next to them. */
 
- f_master = dynamic_cast< AbstractBlock * >( f_Block );
+ f_master = f_mirror ? f_mirror : dynamic_cast< AbstractBlock * >( f_Block );
  if( ! f_master )
   throw( std::logic_error( _prfx + "the convex master has to be assembled "
-                           "into the Block, which therefore has to be an "
-                           "AbstractBlock" ) );
+                           "into an AbstractBlock" ) );
 
  const bool mx = f_master->get_objective() &&
                  ( f_master->get_objective()->get_sense() == Objective::eMax );
@@ -1523,6 +1592,10 @@ void BendersDecompositionSolver::build_MILP_master( void )
  v_cuts = new std::list< FRowConstraint >;
  f_master->add_dynamic_constraint( *v_cuts , "cuts" );
 
+ // the trust region, if any, is filled at the start of each cut loop
+ v_trust = new std::list< FRowConstraint >;
+ f_master->add_dynamic_constraint( *v_trust , "trust" );
+
  }  // end( BendersDecompositionSolver::build_MILP_master )
 
 /*--------------------------------------------------------------------------*/
@@ -1534,12 +1607,15 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
  const Index nx = v_x.size();
  const Index K = v_BF.size();
- /* How much a cut has to be violated to be worth adding, relative to the
-  * value of the function it cuts: an absolute threshold would be below the
-  * noise of the master on an instance whose values are large, and the loop
-  * would keep separating cuts that say nothing. */
+ /* How much a cut has to be violated to be worth adding (dblCutTol),
+  * relative to the value of the function it cuts: an absolute threshold
+  * would be below the noise of the master on an instance whose values are
+  * large, and the loop would keep separating cuts that say nothing. It is
+  * also what the gap of the loop can be closed to, and a master Solver
+  * that holds the cuts more tightly than its default can take a smaller
+  * one. */
 
- const double tol = 1e-9;
+ const double tol = f_cut_tol;
 
  auto violated = [ tol ]( double f , double eta ) {
   return( f - eta > tol * std::max( 1.0 , std::abs( f ) ) );
@@ -2050,6 +2126,14 @@ int BendersDecompositionSolver::solve_MILP_master( void )
  double best_ub = Inf< double >();
  double inc_value = Inf< double >();
 
+ // the value of the master, which is a lower bound only without the box of
+ // the trust region [see inc_value for that of its incumbent]
+ double mval = - Inf< double >();
+
+ // whether the box of the trust region is in the master, and its radius
+ bool tr_on = false;
+ double tr_delta = f_tr_radius;
+
  auto log_round = [ & ]( Index added , bool feasible , double excess ) {
   if( feasible )
    best_ub = std::min( best_ub , inc_value + std::max( excess , 0.0 ) /
@@ -2063,7 +2147,10 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    *f_log << best_ub;
   else
    *f_log << "inf";
-  *f_log << ", cuts " << added << " (" << f_cuts << ")"
+  *f_log << ", cuts " << added << " (" << f_cuts << ")";
+  if( tr_on )
+   *f_log << ", box " << tr_delta;
+  *f_log
 	 << std::setprecision( 3 ) << ", " << get_elapsed_time() << " s"
 	 << std::setprecision( prec ) << std::endl;
   };
@@ -2089,6 +2176,139 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   return( same );
   };
 
+ /* The trust region [see dblTRRadius] is the box | x_i - c_i | <=
+  * delta around a center c, made of rows of the master, since the bounds of
+  * the x belong to (B). The center starts where the x are when the loop
+  * does, and moves to the incumbent x when this is a serious step, i.e.,
+  * when its value f( x ) is below that of the center by at least a fraction
+  * tr_m of the decrease that the master predicts; delta doubles when the box
+  * is binding at the incumbent of a serious step, and it never shrinks.
+  * When no cut is violated, the model is exact at the incumbent: if the box
+  * is not binding there, or the step is not a serious one, the box is taken
+  * away and the loop goes on as without it, so that the master value it
+  * stops with is a lower bound, whatever the x. */
+
+ const double tr_m = 0.1;
+ double tr_fc = Inf< double >();   // the value of the center
+ std::vector< double > tr_c;
+
+ auto tr_drop = [ & ]( void ) {
+  if( ! tr_on )
+   return;
+  f_master->remove_dynamic_constraints( *v_trust ,
+                                        Range( 0 , v_trust->size() ) ,
+                                        eModBlck );
+  tr_on = false;
+  };
+
+ auto tr_move = [ & ]( void ) {
+  auto row = v_trust->begin();
+  for( Index i = 0 ; i < nx ; ++i , ++row ) {
+   const double lo = tr_c[ i ] - tr_delta;
+   const double hi = tr_c[ i ] + tr_delta;
+   // the box never empty in between, for whoever reads it in the middle
+   if( lo > row->get_rhs() ) {
+    row->set_rhs( hi , eModBlck );
+    row->set_lhs( lo , eModBlck );
+    }
+   else {
+    row->set_lhs( lo , eModBlck );
+    row->set_rhs( hi , eModBlck );
+    }
+   }
+  };
+
+ /* What the trust region does at the end of a round, given the cuts added
+  * in it, whether every subproblem is feasible at the incumbent and how
+  * much the value functions are above their epigraph Variable there: true
+  * if the loop has to go on whether or not cuts have been added. */
+
+ auto tr_update = [ & ]( Index added , bool feasible , double excess ) {
+  bool binding = false;
+  for( Index i = 0 ; i < nx ; ++i )
+   if( std::abs( v_x[ i ]->get_value() - tr_c[ i ] ) >=
+       tr_delta * ( 1 - 1e-9 ) ) {
+    binding = true;
+    break;
+    }
+
+  bool serious = false;
+  if( feasible ) {
+   const double fx = inc_value + std::max( excess , 0.0 ) /
+                     f_Block->get_objective_weight();
+   serious = ( tr_fc == Inf< double >() ) ||
+             ( fx <= tr_fc - tr_m * ( tr_fc - mval ) );
+   if( serious ) {
+    for( Index i = 0 ; i < nx ; ++i )
+     tr_c[ i ] = v_x[ i ]->get_value();
+    tr_fc = fx;
+    if( binding )
+     tr_delta *= 2;
+    }
+   }
+
+  if( added ) {
+   if( serious )
+    tr_move();
+   return( false );
+   }
+
+  if( serious && binding )
+   tr_move();
+  else
+   tr_drop();
+  return( true );
+  };
+
+ // a box left by a previous call, which has stopped with it, goes away
+ if( ! v_trust->empty() )
+  f_master->remove_dynamic_constraints( *v_trust ,
+                                        Range( 0 , v_trust->size() ) ,
+                                        eModBlck );
+
+ if( ( f_tr_radius > 0 ) && nx ) {
+  tr_c.resize( nx );
+  std::list< FRowConstraint > nr( nx );
+  auto row = nr.begin();
+  for( Index i = 0 ; i < nx ; ++i , ++row ) {
+   tr_c[ i ] = v_x[ i ]->get_value();
+   LinearFunction::v_coeff_pair cp( { { v_x[ i ] , 1 } } );
+   row->set_function( new LinearFunction( std::move( cp ) ) );
+   row->set_lhs( tr_c[ i ] - tr_delta );
+   row->set_rhs( tr_c[ i ] + tr_delta );
+   }
+  f_master->add_dynamic_constraints( *v_trust , nr , eModBlck );
+  tr_on = true;
+
+  /* The value functions at the center give the first cuts, those where the
+   * master is going to look first, and their sum with the Objective of (B)
+   * the value of the center, which the first serious step has to improve
+   * upon; a center where some subproblem has no solution only gives its
+   * feasibility cut, and the first master point becomes the center. */
+
+  evaluate_all();
+  bool cfeas = true;
+  double fc = 0;
+  for( Index k = 0 ; k < K ; ++k ) {
+   const int st = v_eval[ k ].status;
+   if( ( st != kOK ) && ( st != kLowPrecision ) )
+    return( st );
+   if( ! v_eval[ k ].diagonal ) {
+    add_feasibility_cut( k , v_eval[ k ].g , v_eval[ k ].alpha );
+    cfeas = false;
+    continue;
+    }
+   fc += v_BF[ k ]->get_value();
+   if( f_cut_type != eSingleCut )
+    add_cut( & (*v_eta)[ k ] , v_eval[ k ].g , v_eval[ k ].alpha );
+   }
+  auto ob = dynamic_cast< RealObjective * >( f_Block->get_objective() );
+  if( cfeas && ob ) {
+   ob->compute();
+   tr_fc = ob->value() + fc / f_Block->get_objective_weight();
+   }
+  }
+
  for( int round = 0 ; round < f_max_rounds ; ++round ) {
 
   lowp = false;
@@ -2103,6 +2323,13 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   status = f_master_solver->compute( round > 0 );
 
+  // a box that leaves out all the master is taken away, and the master
+  // solved again without it
+  if( tr_on && ( status == kInfeasible ) ) {
+   tr_drop();
+   continue;
+   }
+
   if( ( status != kOK ) && ( status != kLowPrecision ) )
    return( status );
 
@@ -2110,10 +2337,11 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   // the MILP master is the problem times the weight of (B) [see
   // build_MILP_master()]
-  f_value = f_master_solver->get_lb() / f_Block->get_objective_weight();
+  mval = f_master_solver->get_lb() / f_Block->get_objective_weight();
   inc_value = f_master_solver->get_ub() / f_Block->get_objective_weight();
   if( inc_value == Inf< double >() )
-   inc_value = f_value;
+   inc_value = mval;
+  f_value = tr_on ? - Inf< double >() : mval;
 
   const bool stalled = same_incumbent();
 
@@ -2184,6 +2412,9 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
    log_round( late , feasible , excess );
 
+   if( tr_on && tr_update( late , feasible , excess ) )
+    continue;
+
    if( late )
     continue;
 
@@ -2251,6 +2482,9 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    }
 
   log_round( added , all_feasible , excess );
+
+  if( tr_on && tr_update( added , all_feasible , excess ) )
+   continue;
 
   if( ! added ) {   // no cut is violated: the master is the problem
    const int cl = finish( excess );

@@ -16,6 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one collects the cost of each Block of the subproblem with its weight; the
   subproblems have theirs through their `BendersBFunction`
 
+- `dblTRRadius` (default 0, i.e., none): with a positive value the
+  MILP regime is stabilized by a trust region, a box around a center (where
+  the value functions are evaluated first) that moves at the serious steps
+  and grows when it is binding there, taken away when no cut is violated,
+  so that the value at the end is a lower bound
+
+- `dblCutTol` (default 1e-9, the value it had): how much a cut of the MILP
+  regime has to be violated at the incumbent to be added, relative to the
+  value of the function it cuts
+
+- the convex regime on a Block that is not an `AbstractBlock`: the master
+  is the copy of its abstract representation [see `AbstractBlock::mirror()`],
+  in which the value functions are written, and its solution is written
+  back into the Variable of the Block
+
 - the makefiles build the C++20 module `smspp.bendersdecompositionsolver`
   when `SMSppMOD` is not empty (e.g., `make SMSppMOD=1`), with clang++ 16
   or later [see `lib/makefile-mod` of SMS++]
@@ -49,6 +64,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   build goes on with the headers [see `cmake/CheckModule.cmake` of SMS++]
 
 ### Fixed
+
+- the reformulation asks the Block for its abstract representation, which
+  it needed and which some other Solver of the Block had to have asked for
+  before
+
+- in the convex regime the solution of each subproblem is that at the
+  solution of the master, the value functions being evaluated there once
+  more, rather than that at the last trial point of the bundle-type master
 
 - the upper bound of the MILP regime is the value of the incumbent of the
   master (`get_ub()`) plus the excess of the value functions, no longer its
