@@ -631,6 +631,17 @@ class BendersDecompositionSolver : public CDASolver
 
  bool has_dual_solution( void ) override;
 
+/*--------------------------------------------------------------------------*/
+ /// the weights of the Variable are applied
+ /** The coefficient of a complicating Variable in a Constraint of a
+  * subproblem goes in the mapping of its BendersBFunction multiplied by its
+  * weight [see x_weight()], the rest being up to the Solver of the master and
+  * of the subproblems, which refuse a weight they do not apply. */
+
+ [[nodiscard]] bool handles_variable_weight( void ) const override {
+  return( true );
+  }
+
  void get_dual_solution( Configuration * solc = nullptr ) override;
 
 /*--------------------------------------------------------------------------*/
@@ -710,7 +721,7 @@ class BendersDecompositionSolver : public CDASolver
 
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
- /// public enum of the double parameters specific to BendersDecompositionSolver
+ /// public enum of the double parameters specific to this Solver
  enum dbl_par_type_BDSlv {
   dbl_BDSlv_CoreMove = dblLastParCDAS ,
   ///< how far the core point moves towards the incumbent, in [ 0 , 1 ]
@@ -720,7 +731,8 @@ class BendersDecompositionSolver : public CDASolver
   ///< deepest one having no slack to give a cost to
 
   dbl_BDSlv_ParetoMu ,
-  ///< step towards the core point of the cut of Sherali and Lunday, in ( 0 , 1 )
+  ///< step towards the core point of the cut of Sherali and Lunday,
+  ///< in ( 0 , 1 )
 
   dblLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
@@ -753,7 +765,7 @@ class BendersDecompositionSolver : public CDASolver
 
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
- /// public enum of the string parameters specific to BendersDecompositionSolver
+ /// public enum of the string parameters specific to this Solver
  enum str_par_type_BDSlv {
   str_BDSlv_MSName = strLastParCDAS ,
   ///< classname of the master Solver ("BundleSolver", a "*MILPSolver", ...)
@@ -864,8 +876,8 @@ class BendersDecompositionSolver : public CDASolver
   *  the cost int_BDSlv_PhaseOneWeights says [see phase_one_weight_type],
   *  the Objective: the value of the problem is then the least weighted
   *  violation of the coupling, which is zero exactly where the subproblem
-  *  has a solution. The affine mapping is the one of the subproblem, \p A and \p b,
-  *  on the same \p sides.
+  *  has a solution. The affine mapping is the one of the subproblem, \p A
+  *  and \p b, on the same \p sides.
   *
   *  What the copy could not reproduce [see AbstractBlock::get_mirror_issues()]
   *  is left out, and written to the log if there is one: it turns the copy
@@ -953,10 +965,26 @@ class BendersDecompositionSolver : public CDASolver
   * the classname() of a Block to the BlockSolverConfig for it, which is
   * dispatched by classname() over the whole sub-tree. The latter is what
   * makes heterogeneous subproblems configurable. The Solver it attaches are
-  * recorded in v_sub_solvers, so that dismantle() detaches and deletes
-  * them. */
+  * added, with their Block, to \p attached, which the caller records in
+  * v_sub_solvers, so that dismantle() detaches and deletes them; it only
+  * touches \p block and \p attached, so that it can be called in many
+  * threads on different Block. */
 
- void apply_BSCfg( Block * block , const std::string & fn );
+ void apply_BSCfg( Block * block , const std::string & fn ,
+		   std::vector< std::pair< Block * , Solver * > > & attached );
+
+ /// the weight of the Variable of the i-th x in the subproblems
+ /** The product of the weights of the Variable [see
+  * Block::set_variable_weight()] from the Block of the i-th complicating
+  * Variable up to (B), the latter excluded, which is the factor by which the
+  * coefficient of that Variable in a Constraint of a subproblem is
+  * multiplied in the mapping of its BendersBFunction: the subproblems are
+  * sub-Block of (B) that do not contain the Variable, hence (B) is the
+  * closest Block that contains both, and the weight is the same for all the
+  * Constraint of all the subproblems (which are not in the tree of (B) any
+  * longer when the mapping is built and undone). */
+
+ [[nodiscard]] double x_weight( Index i ) const;
 
  /// translate a master-Solver int parameter index into the BDSlv index space
  [[nodiscard]] idx_type int_par_ms( idx_type par ) const;

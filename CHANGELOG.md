@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- the subproblems get their `Solver` (which loads each of them) in
+  `intMaxThread` threads, as their value functions are evaluated, rather
+  than one after the other
+
 - a sub-Block in which no Variable of the master appears is accepted, its
   value function being a constant, instead of stopping the reformulation
   with `std::logic_error`

@@ -98,6 +98,58 @@ static const std::vector< std::string > str_pars_BDSlv = {
  };
 
 /*--------------------------------------------------------------------------*/
+/*------------------------------- FUNCTIONS --------------------------------*/
+/*--------------------------------------------------------------------------*/
+
+// calls one( k ) for each k in [ 0 , K ), in at most nt threads (this one
+// among them), each k taken by the first thread that is free; the first
+// exception thrown stops the others at their next k and is thrown again here
+
+static void parallel_for( std::size_t K , int nt ,
+			  const std::function< void( std::size_t ) > & one )
+{
+ nt = int( std::min( std::size_t( std::max( nt , 1 ) ) , K ) );
+ if( nt <= 1 ) {
+  for( std::size_t k = 0 ; k < K ; ++k )
+   one( k );
+  return;
+  }
+
+ std::atomic< std::size_t > next( 0 );
+ std::exception_ptr error;
+ std::mutex error_mutex;
+
+ auto worker = [ & ]( void ) {
+  for( ; ; ) {
+   const std::size_t k = next++;
+   if( k >= K )
+    return;
+   try {
+    one( k );
+    }
+   catch( ... ) {
+    std::lock_guard< std::mutex > guard( error_mutex );
+    if( ! error )
+     error = std::current_exception();
+    next = K;  // the others stop at their next k
+    return;
+    }
+   }
+  };
+
+ std::vector< std::thread > pool;
+ pool.reserve( nt - 1 );
+ for( int t = 1 ; t < nt ; ++t )
+  pool.emplace_back( worker );
+ worker();
+ for( auto & th : pool )
+  th.join();
+
+ if( error )
+  std::rethrow_exception( error );
+ }
+
+/*--------------------------------------------------------------------------*/
 /*--------------- CONSTRUCTING AND DESTRUCTING -----------------------------*/
 /*--------------------------------------------------------------------------*/
 
@@ -184,7 +236,7 @@ void BendersDecompositionSolver::dismantle( void )
     LinearFunction::v_coeff_pair cp;
     for( Index i = 0 ; ( i < A[ j ].size() ) && ( i < v_x.size() ) ; ++i )
      if( A[ j ][ i ] )
-      cp.emplace_back( v_x[ i ] , - A[ j ][ i ] );
+      cp.emplace_back( v_x[ i ] , - A[ j ][ i ] / x_weight( i ) );
 
     if( ! cp.empty() ) {
      lf->add_variables( LinearFunction::v_coeff_pair( cp ) , eNoMod );
@@ -904,15 +956,27 @@ void BendersDecompositionSolver::reformulate( void )
 
  /* Each subproblem needs a Solver of its own, since evaluating the value
   * function means solving it: which one is a Configuration matter, so that
-  * heterogeneous subproblems can be dealt with. */
+  * heterogeneous subproblems can be dealt with. Giving a subproblem its
+  * Solver (which loads the subproblem into it) touches nothing but its own
+  * sub-Block, as evaluating it does [see compute()], so that the
+  * subproblems get their Solver in f_max_thread threads; the Solver are
+  * then recorded in the order of the subproblems. */
 
  if( ! f_Bsub_BSCfg.empty() ) {
+  std::vector< Block * > subs;
   for( auto bf : v_BF )
-   apply_BSCfg( bf->get_inner_block() , f_Bsub_BSCfg );
-
+   subs.push_back( bf->get_inner_block() );
   for( auto bf : v_BF1 )
    if( bf )
-    apply_BSCfg( bf->get_inner_block() , f_Bsub_BSCfg );
+    subs.push_back( bf->get_inner_block() );
+
+  std::vector< std::vector< std::pair< Block * , Solver * > > >
+   attached( subs.size() );
+  parallel_for( subs.size() , f_max_thread , [ & ]( std::size_t k ) {
+                 apply_BSCfg( subs[ k ] , f_Bsub_BSCfg , attached[ k ] ); } );
+
+  for( auto & a : attached )
+   v_sub_solvers.insert( v_sub_solvers.end() , a.begin() , a.end() );
   }
 
  // assemble the master- - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -984,7 +1048,8 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
    if( xit != x_index.end() ) {
     if( row.empty() )
      row.assign( v_x.size() , 0 );
-    row[ xit->second ] -= cp.second;
+    // the coefficient the Solver of (B) would see [see x_weight()]
+    row[ xit->second ] -= cp.second * x_weight( xit->second );
     nms.push_back( i );
     rmv.push_back( v_x[ xit->second ] );
     }
@@ -1047,7 +1112,8 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
 
 /*--------------------------------------------------------------------------*/
 
-void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
+void BendersDecompositionSolver::build_phase_one( Index k ,
+                       const Subset & cpl ,
                        const std::vector< std::vector< double > > & A ,
                        const std::vector< double > & b ,
                        const std::vector< int > & sides )
@@ -1884,51 +1950,10 @@ int BendersDecompositionSolver::solve_MILP_master( void )
  std::vector< Evaluation > v_eval( K );
 
  auto evaluate_all = [ & ]( void ) {
-  auto one = [ & ]( Index k ) {
-   auto & e = v_eval[ k ];
-   e.g.assign( nx , 0 );
-   e.status = get_cut( k , e.g , e.alpha , e.diagonal );
-   };
-
-  const Index nt = std::min( Index( std::max( f_max_thread , 1 ) ) , K );
-  if( nt <= 1 ) {
-   for( Index k = 0 ; k < K ; ++k )
-    one( k );
-   return;
-   }
-
-  std::atomic< Index > next( 0 );
-  std::exception_ptr error;
-  std::mutex error_mutex;
-
-  auto worker = [ & ]( void ) {
-   for( ; ; ) {
-    const Index k = next++;
-    if( k >= K )
-     return;
-    try {
-     one( k );
-     }
-    catch( ... ) {
-     std::lock_guard< std::mutex > guard( error_mutex );
-     if( ! error )
-      error = std::current_exception();
-     next = K;  // the others stop at their next subproblem
-     return;
-     }
-    }
-   };
-
-  std::vector< std::thread > pool;
-  pool.reserve( nt - 1 );
-  for( Index t = 1 ; t < nt ; ++t )
-   pool.emplace_back( worker );
-  worker();
-  for( auto & th : pool )
-   th.join();
-
-  if( error )
-   std::rethrow_exception( error );
+  parallel_for( K , f_max_thread , [ & ]( std::size_t k ) {
+                 auto & e = v_eval[ k ];
+                 e.g.assign( nx , 0 );
+                 e.status = get_cut( k , e.g , e.alpha , e.diagonal ); } );
   };
 
  /* The Pareto-optimal cuts of Papadakos: the very same evaluation, but at the
@@ -2427,8 +2452,16 @@ void BendersDecompositionSolver::acquire_master_solver( void )
 
 /*--------------------------------------------------------------------------*/
 
+double BendersDecompositionSolver::x_weight( Index i ) const
+{
+ return( v_x[ i ]->get_Block()->get_variable_weight( f_Block ) );
+ }
+
+/*--------------------------------------------------------------------------*/
+
 void BendersDecompositionSolver::apply_BSCfg( Block * block ,
-                                              const std::string & fn )
+		 const std::string & fn ,
+		 std::vector< std::pair< Block * , Solver * > > & attached )
 {
  auto cfg = Configuration::deserialize( fn );
 
@@ -2438,7 +2471,7 @@ void BendersDecompositionSolver::apply_BSCfg( Block * block ,
   bsc->apply( blk );
   for( auto slv : blk->get_registered_solvers() )
    if( std::find( before.begin() , before.end() , slv ) == before.end() )
-    v_sub_solvers.emplace_back( blk , slv );
+    attached.emplace_back( blk , slv );
   };
 
  if( auto bsc = dynamic_cast< BlockSolverConfig * >( cfg ) ) {
