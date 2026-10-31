@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- the README leaves the channels that distribute SMS++ to the
+  installation guide of the wiki (Installing-SMS++), keeping the names
+  of the packages of the module
+
 - the subproblems get their `Solver` (which loads each of them) in
   `intMaxThread` threads, as their value functions are evaluated, rather
   than one after the other
