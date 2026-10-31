@@ -65,6 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- with the compilers of MinGW (MSYS2) the target asks whoever links it
+  for the symbol that forces the module in, as with MSVC and on macOS:
+  the linker imports a DLL only for the symbols asked for, so that a
+  program that used none had the module left out and its classes
+  missing from the factory
+
 - the reformulation, when undone, puts back in each coupling Constraint the
   terms of the x with the coefficients they had, kept when they are taken
   out, rather than the opposite of the mapping divided by the weight of the
