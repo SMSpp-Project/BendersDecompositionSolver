@@ -65,6 +65,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- the reformulation, when undone, puts back in each coupling Constraint the
+  terms of the x with the coefficients they had, kept when they are taken
+  out, rather than the opposite of the mapping divided by the weight of the
+  x, which a weight of 0 makes infinite
+
 - the reformulation asks the Block for its abstract representation, which
   it needed and which some other Solver of the Block had to have asked for
   before

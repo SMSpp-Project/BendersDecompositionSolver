@@ -225,20 +225,18 @@ void BendersDecompositionSolver::dismantle( void )
   if( ( ! bf ) || ( k >= v_sides0.size() ) )
    continue;
 
-  const auto & A = bf->get_A();
   const auto & cns = bf->get_constraints();
   const auto & sd0 = v_sides0[ k ];
+  const auto & cf0 = v_coeff0[ k ];
 
-  for( Index j = 0 ; ( j < cns.size() ) && ( j < sd0.size() ) ; ++j ) {
+  for( Index j = 0 ; ( j < cns.size() ) && ( j < sd0.size() ) &&
+                     ( j < cf0.size() ) ; ++j ) {
    auto cn = dynamic_cast< FRowConstraint * >( cns[ j ] );
    if( ! cn )
     continue;
 
    if( auto lf = dynamic_cast< LinearFunction * >( cn->get_function() ) ) {
-    LinearFunction::v_coeff_pair cp;
-    for( Index i = 0 ; ( i < A[ j ].size() ) && ( i < v_x.size() ) ; ++i )
-     if( A[ j ][ i ] )
-      cp.emplace_back( v_x[ i ] , - A[ j ][ i ] / x_weight( i ) );
+    LinearFunction::v_coeff_pair cp( cf0[ j ] );
 
     if( ! cp.empty() ) {
      lf->add_variables( LinearFunction::v_coeff_pair( cp ) , eNoMod );
@@ -254,6 +252,7 @@ void BendersDecompositionSolver::dismantle( void )
   }
 
  v_sides0.clear();
+ v_coeff0.clear();
 
  /* Each subproblem is owned by (B), which still has it among its sub-Block:
   * the BendersBFunction has to let go of it, or it would be deleted twice.
@@ -979,6 +978,7 @@ void BendersDecompositionSolver::reformulate( void )
 
  v_BF.assign( NS , nullptr );
  v_sides0.assign( NS , {} );
+ v_coeff0.assign( NS , {} );
 
  // the replica is the separation problem of the unified cut, too
  const bool p1 = ( f_feas_cut == ePhaseOne ) || ( f_unified != eNoUnified );
@@ -1101,6 +1101,8 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
  // back when the reformulation is undone [see dismantle()]
  auto & sd0 = v_sides0[ k ];
  sd0.clear();
+ auto & cf0 = v_coeff0[ k ];
+ cf0.clear();
 
  auto scan = [ & ]( FRowConstraint & con ) {
   const Index pos = scanned++;
@@ -1110,6 +1112,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
 
   Subset nms;             // the positions of the x terms in the Function
   std::vector< ColVariable * > rmv;   // and the x themselves
+  LinearFunction::v_coeff_pair removed;   // with their coefficients
   BendersBFunction::RealVector row;
 
   Index i = 0;
@@ -1122,6 +1125,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
     row[ xit->second ] -= cp.second * x_weight( xit->second );
     nms.push_back( i );
     rmv.push_back( v_x[ xit->second ] );
+    removed.emplace_back( v_x[ xit->second ] , cp.second );
     }
    ++i;
    }
@@ -1138,6 +1142,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
   A.push_back( std::move( row ) );
   b.push_back( lhs ? con.get_lhs() : con.get_rhs() );
   sd0.emplace_back( con.get_lhs() , con.get_rhs() );
+  cf0.push_back( std::move( removed ) );
   cns.push_back( & con );
   cpl.push_back( pos );
   sides.push_back( ( lhs && rhs ) ? BendersBFunction::eBoth

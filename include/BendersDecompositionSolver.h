@@ -1114,6 +1114,11 @@ class BendersDecompositionSolver : public CDASolver
  /// the sides each coupling Constraint had before the x were taken out of it
  std::vector< std::vector< std::pair< double , double > > > v_sides0;
 
+ /// the x terms each coupling Constraint had, with their coefficients,
+ /// which are put back as they were [see dismantle()]: the opposite of the
+ /// mapping divided by the weight of the x would be lost with a weight 0
+ std::vector< std::vector< LinearFunction::v_coeff_pair > > v_coeff0;
+
  /// the core point the Pareto-optimal cuts are generated at, in master order
  std::vector< double > v_core;
 
