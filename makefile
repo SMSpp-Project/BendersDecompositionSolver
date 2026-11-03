@@ -5,14 +5,14 @@
 #   makefile of BendersDecompositionSolver                                   #
 #                                                                            #
 #   The makefile takes in input the -I directives for all the external       #
-#   libraries needed by BendersDecompositionSolver, i.e., core SMS++ (which   #
-#   provides BendersBFunction). The master and the subproblem Solver are      #
-#   instantiated through the Solver factory at run time, hence they are not   #
+#   libraries needed by BendersDecompositionSolver, i.e., core SMS++ (which  #
+#   provides BendersBFunction). The master and the subproblem Solver are     #
+#   instantiated through the Solver factory at run time, hence they are not  #
 #   compile-time dependencies of this module.                                #
 #                                                                            #
 #   Note that $(SMS++INC) is assumed to include any -I directive             #
-#   corresponding to external libraries needed by SMS++, at least to the      #
-#   extent in which they are needed by the parts of SMS++ used by             #
+#   corresponding to external libraries needed by SMS++, at least to the     #
+#   extent in which they are needed by the parts of SMS++ used by            #
 #   BendersDecompositionSolver.                                              #
 #                                                                            #
 #   Input:  $(CC)          = compiler command                                #
@@ -39,6 +39,12 @@ BnDSLVOBJ = $(BnDSLVSDR)/obj/BendersDecompositionSolver.o
 BnDSLVINC = -I$(BnDSLVSDR)/include
 
 BnDSLVH   = $(BnDSLVSDR)/include/BendersDecompositionSolver.h
+
+# the C++20 module smspp.bendersdecompositionsolver - - - - - - - - - - - - -
+# [see makefile-mod of SMS++]
+
+$(eval $(call SMSppMODrule,BnDSLV,$(BnDSLVSDR),BendersDecompositionSolver,\
+	smspp.bendersdecompositionsolver,SMS++))
 
 # clean - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 

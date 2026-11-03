@@ -7,6 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-03
+
+### Added
+
+- the weight of the Objective of a `Block` [see
+  `Block::set_objective_weight()`]: the MILP master, in which (B) is a
+  sub-Block, gives the epigraph Variable the weight of (B), which as the Block
+  of this Solver it does not have, and its bound is divided by it; the phase
+  one collects the cost of each Block of the subproblem with its weight; the
+  subproblems have theirs through their `BendersBFunction`
+
+- `dblTRRadius` (default 0, i.e., none): with a positive value the
+  MILP regime is stabilized by a trust region, a box around a center (where
+  the value functions are evaluated first) that moves at the serious steps
+  and grows when it is binding there, taken away when no cut is violated,
+  so that the value at the end is a lower bound
+
+- `dblCutTol` (default 1e-9, the value it had): how much a cut of the MILP
+  regime has to be violated at the incumbent to be added, relative to the
+  value of the function it cuts
+
+- the convex regime on a Block that is not an `AbstractBlock`: the master
+  is the copy of its abstract representation [see `AbstractBlock::mirror()`],
+  in which the value functions are written, and its solution is written
+  back into the Variable of the Block
+
+- the makefiles build the C++20 module `smspp.bendersdecompositionsolver`
+  when `SMSppMOD` is not empty (e.g., `make SMSppMOD=1`), with clang++ 16
+  or later [see `lib/makefile-mod` of SMS++]
+
+- the C++20 module `smspp.bendersdecompositionsolver`
+  (`src/BendersDecompositionSolver.cppm`), which exports every name that the
+  headers declare at namespace scope and re-exports `smspp`, so that a
+  source file can write `import smspp.bendersdecompositionsolver;` in place
+  of the `#include` of the headers; it is built with the CMake option
+  `SMSpp_BUILD_MODULE`, as the target
+  `SMS++::BendersDecompositionSolver_module`
+
+### Changed
+
+- the README leaves the channels that distribute SMS++ to the
+  installation guide of the wiki (Installing-SMS++), keeping the names
+  of the packages of the module
+
+- the subproblems get their `Solver` (which loads each of them) in
+  `intMaxThread` threads, as their value functions are evaluated, rather
+  than one after the other
+
+- a sub-Block in which no Variable of the master appears is accepted, its
+  value function being a constant, instead of stopping the reformulation
+  with `std::logic_error`
+
+- the pipeline builds the module also with its makefiles, after CMake, and
+  runs on a change of the makefiles too [see `ci/makefile` of the umbrella]
+
+- `SMSpp_BUILD_MODULE` no longer stops the configuration when the C++20
+  module cannot be built, i.e., with a CMake older than 3.28, a generator
+  other than Ninja or Visual Studio, a compiler other than Clang 16 (with
+  `clang-scan-deps`) or MSVC 19.34, or a module it imports that is not
+  there: the option is turned off with a warning that says why, and the
+  build goes on with the headers [see `cmake/CheckModule.cmake` of SMS++]
+
+### Fixed
+
+- with the compilers of MinGW (MSYS2) the target asks whoever links it
+  for the symbol that forces the module in, as with MSVC and on macOS:
+  the linker imports a DLL only for the symbols asked for, so that a
+  program that used none had the module left out and its classes
+  missing from the factory
+
+- the reformulation, when undone, puts back in each coupling Constraint the
+  terms of the x with the coefficients they had, kept when they are taken
+  out, rather than the opposite of the mapping divided by the weight of the
+  x, which a weight of 0 makes infinite
+
+- the reformulation asks the Block for its abstract representation, which
+  it needed and which some other Solver of the Block had to have asked for
+  before
+
+- in the convex regime the solution of each subproblem is that at the
+  solution of the master, the value functions being evaluated there once
+  more, rather than that at the last trial point of the bundle-type master
+
+- the upper bound of the MILP regime is the value of the incumbent of the
+  master (`get_ub()`) plus the excess of the value functions, no longer its
+  lower bound, which a MILP master stopped with a gap leaves below the
+  value of the incumbent
+
+- with the feasibility cuts of the phase one (`int_BDSlv_FeasCut` 3) an
+  infeasible subproblem whose Solver gives no Farkas certificate stopped
+  the run, the certificate being asked for before the phase one; it is now
+  asked for only if the cut of the phase one does not cut the incumbent
+
+- the phase one of a subproblem gives its `Function` to the `Objective`
+  the replica took from the subproblem, which the replica owns, instead of
+  deleting it and setting a new one that nobody deleted
+
+- the loop of the MILP regime ends when the master gives back the incumbent
+  of the last round: a cut that the master satisfies only up to its own
+  tolerances was found violated again at the same point, added once more and
+  the loop never ended (on some CPUs, the barrier of GUROBI on the QP master
+  of the SVM batteries); the gap of that last round is what `dblRelAcc`
+  judges, `kOK` or `kLowPrecision`
+
+- in the MILP regime each subproblem is given what is left of `dblMaxTime`,
+  or its own time limit if that is shorter, as the master already was: the
+  time was only checked between rounds, so that a round of subproblems that
+  are MILPs (say, a unit commitment) could go on far beyond the limit; the
+  Solver of `strRecoveryBSC` is given what is left, too
+
 ## [0.2.0] - 2026-10-09
 
 ### Added
@@ -261,7 +371,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   RPATH relative to itself, so that an installed tree keeps working wherever
   it is moved
 
-[Unreleased]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.2.0...develop
+[Unreleased]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.3.0...develop
+[0.3.0]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.2.0...0.3.0
 [0.2.0]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.1.1...0.2.0
 [0.1.1]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.1.0...0.1.1
 [0.1.0]: https://gitlab.com/smspp/bendersdecompositionsolver/-/tags/0.1.0

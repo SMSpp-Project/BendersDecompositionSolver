@@ -5,24 +5,24 @@
 #   short makefile of BendersDecompositionSolver                             #
 #                                                                            #
 #   The makefile defines internally all external libraries required by       #
-#   BendersDecompositionSolver, excluding the SMS++ core ones whose symbols   #
-#   are assumed to have been defined already (e.g. by including               #
+#   BendersDecompositionSolver, excluding the SMS++ core ones whose symbols  #
+#   are assumed to have been defined already (e.g. by including              #
 #   SMS++/lib/makefile). Accordingly, all necessary OBJ, H, -I directives,   #
-#   external libraries + -L< libdirs > are added to the corresponding         #
+#   external libraries + -L< libdirs > are added to the corresponding        #
 #   BnDSLV* macros.                                                          #
 #                                                                            #
 #   Input:  $(CC)        = compiler command                                  #
 #           $(SW)        = compiler options                                  #
 #           $(SMS++INC)  = the -I$( core SMS++ directory )                   #
 #           $(SMS++OBJ)  = the core SMS++ library                            #
-#           $(BnDSLVSDR) = the directory where BendersDecompositionSolver     #
+#           $(BnDSLVSDR) = the directory where BendersDecompositionSolver    #
 #                          source is                                         #
 #           $(BnDSLVODR) = the directory where the objects have to be put    #
 #                                                                            #
 #   Output: $(BnDSLVOBJ) = the final object(s) / library                     #
 #           $(BnDSLVLIB) = external libraries + -L< libdirs >                #
 #           $(BnDSLVH)   = the .h files to include                           #
-#           $(BnDSLVINC) = the -I$( BendersDecompositionSolver directory )    #
+#           $(BnDSLVINC) = the -I$( BendersDecompositionSolver directory )   #
 #                                                                            #
 #                              Antonio Frangioni                             #
 #                                Donato Meoli                                #

@@ -18,9 +18,7 @@
  *
  * available at
  *
- * \link
  *  http://www.di.unipi.it/~frangio/abstracts.html#COAP15
- * \endlink
  *
  * for the stabilized (and possibly inexact) variant of the method, in which
  * the master problem is solved by a bundle-type approach, and to
@@ -31,9 +29,7 @@
  *
  * available at
  *
- * \link
  *  http://www.di.unipi.it/~frangio/abstracts.html#ManSci18
- * \endlink
  *
  * for the case in which the master problem is a (stabilized) combinatorial
  * problem, solved as a MILP with Benders cuts added as lazy constraints. The
@@ -130,8 +126,10 @@ namespace SMSpp_di_unipi_it
  *
  * The Block (B) is assumed to have the following structure:
  *
- *  (O)   min / max { d( x ) + \sum_{k \in K} c^k( y^k ) :
- *                    x \in X , ( x , y^k ) \in Z^k , k \in K }
+ * \f[
+ *  (O) \quad \min / \max \{\, d( x ) + \sum_{k \in K} c^k( y^k ) :
+ *                 x \in X \,,\, ( x , y^k ) \in Z^k \,,\, k \in K \,\}
+ * \f]
  *
  * where:
  *
@@ -141,15 +139,20 @@ namespace SMSpp_di_unipi_it
  * - d( x ), together with the (first-stage) Constraint X over x, is the
  *   Objective and the Constraint of the root (B);
  *
- * - each sub-Block (B^k), k \in K, is a *subproblem*: it has its own Variable
- *   y^k, its own Objective c^k( y^k ) and its own (second-stage) Constraint;
- *   it is coupled to the master only through the appearance of (some of) the
- *   x in (some of) its Constraint, i.e., Z^k is described by Constraint of
- *   the form l^k <= F^k x + E^k( y^k ) <= u^k .
+ * - each sub-Block (B^k), \f$ k \in K \f$, is a *subproblem*: it has its own
+ *   Variable y^k, its own Objective c^k( y^k ) and its own (second-stage)
+ *   Constraint; it is coupled to the master only through the appearance of
+ *   (some of) the x in (some of) its Constraint, i.e., Z^k is described by
+ *   Constraint of the form l^k <= F^k x + E^k( y^k ) <= u^k . A sub-Block
+ *   where no x appears (F^k = 0) is allowed: its value function is then a
+ *   constant, which its first cut gives whole.
  *
  * By projecting out y^k, (O) is reformulated as
  *
- *  (O')  min / max { d( x ) + \sum_{k \in K} v^k( x ) : x \in X }
+ * \f[
+ *  (O') \quad \min / \max \{\, d( x ) + \sum_{k \in K} v^k( x ) :
+ *                  x \in X \,\}
+ * \f]
  *
  * where the value function of the k-th subproblem
  *
@@ -184,11 +187,11 @@ namespace SMSpp_di_unipi_it
  * Two regimes are supported for how the master (O') is solved, selected by
  * the int_BDSlv_Regime parameter:
  *
- * - convex regime: the master Objective is d( x ) + \sum_k v^k( x ), with
- *   the v^k() entering as C05Function; the master is handed to a CDASolver
- *   of the bundle family (e.g., BundleSolver), which drives the cutting-plane
- *   / stabilized cutting-plane loop pulling linearizations from the
- *   BendersBFunction. This is the setting of the COAP15 reference. With
+ * - convex regime: the master Objective is \f$ d( x ) + \sum_k v^k( x ) \f$,
+ *   with the v^k() entering as C05Function; the master is handed to a
+ *   CDASolver of the bundle family (e.g., BundleSolver), which drives the
+ *   cutting-plane / stabilized cutting-plane loop pulling linearizations from
+ *   the BendersBFunction. This is the setting of the COAP15 reference. With
  *   continuous x this is the convex problem; with integer x it is either its
  *   continuous relaxation or, with a BundleSolver that keeps them integer
  *   (intIntVars == 1, with a proximal or trust-region master that a
@@ -202,20 +205,48 @@ namespace SMSpp_di_unipi_it
  *   master is solved by a MILPSolver, with BendersDecompositionSolver
  *   driving the outer cut loop (solve master, evaluate each v^k at the
  *   incumbent x, add the violated cuts, re-solve) until no violated cut
- *   remains. This is the setting of the ManSci18 reference without its
- *   stabilization, which on integer x the convex regime gives [see above].
+ *   remains. This is the setting of the ManSci18 reference, whose
+ *   stabilization is either the trust region below or, on integer x, the
+ *   convex regime [see above]. Nothing in the loop asks the x to be
+ *   integer: on continuous x, with a master that is an LP or a convex QP,
+ *   it is the cutting-plane method of Kelley, stabilized by the trust
+ *   region if dblTRRadius is positive.
  *   A cut is violated when its value at the incumbent is above the epigraph
- *   Variable, which is the value of the function when the subproblem is
- *   solved exactly; a Solver that is not, e.g., a Lagrangian dual, gives a
+ *   Variable by more than dblCutTol (relative); that value is the
+ *   value of the function when the subproblem is solved exactly, while a
+ *   Solver that is not, e.g., a Lagrangian dual, gives a
  *   value above the cut, and the loop stops with the master value as lower
  *   bound and the values at the incumbent as upper one, returning
  *   kLowPrecision if they are farther apart than dblRelAcc says.
  *
+ * With dblTRRadius > 0 the MILP regime is stabilized by a trust
+ * region: the master has the box \f$ | x_i - c_i | \leq \delta \f$ around a
+ * center \f$ c \f$, which starts where the x are when compute() is called,
+ * where the value functions are evaluated before the first master (which
+ * gives the first cuts and \f$ f( c ) \f$), and moves to the incumbent
+ * \f$ \bar{x} \f$ of a serious step, i.e., when
+ * \f$ f( \bar{x} ) \leq f( c ) - m ( f( c ) - \underline{v} ) \f$, with
+ * \f$ f \f$ the objective of (B), \f$ \underline{v} \f$ the value of the
+ * master and \f$ m = 0.1 \f$; \f$ \delta \f$ starts at
+ * dblTRRadius and doubles at each serious step at which the box is
+ * binding. When no cut is violated at an incumbent at which the box is not
+ * binding, or which is not a serious step, the box is taken away, and the
+ * loop goes on as without it: the value of a master with the box is not a
+ * lower bound, and get_lb() is \f$ - \infty \f$ until the box is gone,
+ * while the master value at the end is. This is meant for continuous x,
+ * which the master moves far from the solution as long as few cuts bound
+ * them (e.g., unbounded x in the first rounds), and on which the box keeps
+ * the cuts where the solution is: with integer x it is a heuristic phase,
+ * after which the loop is the ordinary one. A box that
+ * leaves out every x of the master is taken away as well.
+ *
  * In both regimes dblMaxTime limits a whole call to compute(): the master
  * is given what is left of it, or the dblMaxTime of its own ComputeConfig
- * if that is shorter, and in the MILP regime the loop stops with kStopTime
- * at the first round that finds the time over, the subproblems of a round
- * being solved all in any case.
+ * if that is shorter, and so is each subproblem, by the bundle-type master
+ * in the convex regime and by this Solver in the MILP one, where the loop
+ * stops with kStopTime at the first round that finds the time over, or as
+ * soon as a subproblem stops on it. The Solver of the upper bound recovery
+ * is given what is left, too [see strRecoveryBSC].
  *
  * In both regimes the BendersBFunction objects are the same; only the master
  * assembly and the loop driver differ. The "inner" solver of the master is
@@ -237,8 +268,13 @@ namespace SMSpp_di_unipi_it
  * - in the convex regime what is added are the sub-Block carrying the value
  *   functions, and they have to be sub-Block of the Block that holds the x,
  *   for that is the structure a bundle-type Solver reads: the master is (B)
- *   itself, which therefore has to be an AbstractBlock, the only Block that
- *   lets a Solver add a sub-Block to it.
+ *   itself if it is an AbstractBlock, the only Block that lets a Solver add
+ *   a sub-Block to it, and otherwise the copy of its abstract
+ *   representation [see AbstractBlock::mirror()], whose x are those the
+ *   value functions are written in and whose solution is written back into
+ *   the x of (B) [see get_var_solution()]; the bundle-type Solver starts
+ *   from the values the x have, which therefore have to satisfy the
+ *   Constraint X of (B).
  *
  * In neither regime are the subproblems removed from (B): they now live
  * inside the BendersBFunction, and are declared *excluded* to the master
@@ -359,10 +395,10 @@ class BendersDecompositionSolver : public CDASolver
   * to return is arbitrary. A cut that is *not* dominated by any other is
   * called Pareto-optimal.
   *
-  * [
-  *   v^k( x ) \geq lpha + g^	op x \quad \mbox{dominates} \quad
-  *   v^k( x ) \geq lpha' + g'^	op x
-  * ]
+  * \f[
+  *   v^k( x ) \geq \alpha + g^\top x \quad \mbox{dominates} \quad
+  *   v^k( x ) \geq \alpha' + g'^\top x
+  * \f]
   * when it is above it everywhere on the master feasible set, so which cut
   * is Pareto-optimal depends on that set and not on the incumbent alone.
   * Magnanti and Wong obtain one by maximizing the cut at a *core point*, a
@@ -626,6 +662,17 @@ class BendersDecompositionSolver : public CDASolver
 
  bool has_dual_solution( void ) override;
 
+/*--------------------------------------------------------------------------*/
+ /// the weights of the Variable are applied
+ /** The coefficient of a complicating Variable in a Constraint of a
+  * subproblem goes in the mapping of its BendersBFunction multiplied by its
+  * weight [see x_weight()], the rest being up to the Solver of the master and
+  * of the subproblems, which refuse a weight they do not apply. */
+
+ [[nodiscard]] bool handles_variable_weight( void ) const override {
+  return( true );
+  }
+
  void get_dual_solution( Configuration * solc = nullptr ) override;
 
 /*--------------------------------------------------------------------------*/
@@ -664,7 +711,7 @@ class BendersDecompositionSolver : public CDASolver
  * between the two index spaces.
  *  @{ */
 
- /// public enum of the int parameters specific to BendersDecompositionSolver
+ /// public enum of the int parameters of BendersDecompositionSolver
  enum int_par_type_BDSlv {
   int_BDSlv_iBCopy = intLastParCDAS ,
   ///< copy (R3_Block) vs evict the sub-Block into the BendersBFunction;
@@ -703,9 +750,9 @@ class BendersDecompositionSolver : public CDASolver
   intLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
-/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
- /// public enum of the double parameters specific to BendersDecompositionSolver
+ /// public enum of the double parameters specific to this Solver
  enum dbl_par_type_BDSlv {
   dbl_BDSlv_CoreMove = dblLastParCDAS ,
   ///< how far the core point moves towards the incumbent, in [ 0 , 1 ]
@@ -715,12 +762,20 @@ class BendersDecompositionSolver : public CDASolver
   ///< deepest one having no slack to give a cost to
 
   dbl_BDSlv_ParetoMu ,
-  ///< step towards the core point of the cut of Sherali and Lunday, in ( 0 , 1 )
+  ///< step towards the core point of the cut of Sherali and Lunday,
+  ///< in ( 0 , 1 )
+
+  dblTRRadius ,
+  ///< initial radius of the trust region of the MILP regime, 0 for none
+
+  dblCutTol ,
+  ///< how much a cut of the MILP regime has to be violated at the incumbent
+  ///< to be added, relative to max( 1 , | value | ) of the function it cuts
 
   dblLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
-/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
  /// public enum of the vector-of-int parameters specific to this Solver
  /** Which sub-Block are the master and which Variable are the complicating
@@ -746,9 +801,9 @@ class BendersDecompositionSolver : public CDASolver
   vintLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
-/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
- /// public enum of the string parameters specific to BendersDecompositionSolver
+ /// public enum of the string parameters specific to this Solver
  enum str_par_type_BDSlv {
   str_BDSlv_MSName = strLastParCDAS ,
   ///< classname of the master Solver ("BundleSolver", a "*MILPSolver", ...)
@@ -766,7 +821,7 @@ class BendersDecompositionSolver : public CDASolver
   strLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
-/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
  [[nodiscard]] idx_type get_num_int_par( void ) const override;
 
@@ -859,8 +914,8 @@ class BendersDecompositionSolver : public CDASolver
   *  the cost int_BDSlv_PhaseOneWeights says [see phase_one_weight_type],
   *  the Objective: the value of the problem is then the least weighted
   *  violation of the coupling, which is zero exactly where the subproblem
-  *  has a solution. The affine mapping is the one of the subproblem, \p A and \p b,
-  *  on the same \p sides.
+  *  has a solution. The affine mapping is the one of the subproblem, \p A
+  *  and \p b, on the same \p sides.
   *
   *  What the copy could not reproduce [see AbstractBlock::get_mirror_issues()]
   *  is left out, and written to the log if there is one: it turns the copy
@@ -873,7 +928,7 @@ class BendersDecompositionSolver : public CDASolver
                        const std::vector< double > & b ,
                        const std::vector< int > & sides );
 
- /// assemble the convex master Objective d( x ) + \sum_k v^k( x )
+ /// assemble the convex master Objective \f$ d( x ) + \sum_k v^k( x ) \f$
  void build_convex_master( void );
 
  /// assemble the MILP master with epigraph Variable and the cut family
@@ -932,6 +987,15 @@ class BendersDecompositionSolver : public CDASolver
 
  void master_time_limit( void );
 
+ /// give a subproblem what is left of dblMaxTime
+ /** Gives the Solver of \p bf the shorter of what is left of dblMaxTime and
+  * of \p own, the dblMaxTime that Solver has of its own. \p own is read the
+  * first time it is needed, i.e., before any change, and a negative value
+  * says it is not read yet; when this Solver has no time limit and \p own
+  * has never been read, nothing is touched. */
+
+ void sub_time_limit( BendersBFunction * bf , double & own );
+
  /// apply to \p block the BlockSolverConfig, or meta-configuration, in \p fn
  /** Applies to \p block the Configuration in the file \p fn, which is either
   * a BlockSolverConfig, applied as it is, or a "meta-configuration", i.e., a
@@ -939,10 +1003,26 @@ class BendersDecompositionSolver : public CDASolver
   * the classname() of a Block to the BlockSolverConfig for it, which is
   * dispatched by classname() over the whole sub-tree. The latter is what
   * makes heterogeneous subproblems configurable. The Solver it attaches are
-  * recorded in v_sub_solvers, so that dismantle() detaches and deletes
-  * them. */
+  * added, with their Block, to \p attached, which the caller records in
+  * v_sub_solvers, so that dismantle() detaches and deletes them; it only
+  * touches \p block and \p attached, so that it can be called in many
+  * threads on different Block. */
 
- void apply_BSCfg( Block * block , const std::string & fn );
+ void apply_BSCfg( Block * block , const std::string & fn ,
+		   std::vector< std::pair< Block * , Solver * > > & attached );
+
+ /// the weight of the Variable of the i-th x in the subproblems
+ /** The product of the weights of the Variable [see
+  * Block::set_variable_weight()] from the Block of the i-th complicating
+  * Variable up to (B), the latter excluded, which is the factor by which the
+  * coefficient of that Variable in a Constraint of a subproblem is
+  * multiplied in the mapping of its BendersBFunction: the subproblems are
+  * sub-Block of (B) that do not contain the Variable, hence (B) is the
+  * closest Block that contains both, and the weight is the same for all the
+  * Constraint of all the subproblems (which are not in the tree of (B) any
+  * longer when the mapping is built and undone). */
+
+ [[nodiscard]] double x_weight( Index i ) const;
 
  /// translate a master-Solver int parameter index into the BDSlv index space
  [[nodiscard]] idx_type int_par_ms( idx_type par ) const;
@@ -956,6 +1036,15 @@ class BendersDecompositionSolver : public CDASolver
 
  /// the master Block representing (O'): (B) itself, or a Block of this own
  AbstractBlock * f_master{};
+
+ /// the copy of (B) that is the convex master when (B) is no AbstractBlock
+ /** The convex master adds sub-Block to the Block that holds the x, which
+  * only an AbstractBlock allows: when (B) is not one, the master is the copy
+  * of its abstract representation [see AbstractBlock::mirror()], the value
+  * functions are written in the copies of the x, and the solution of the
+  * master is written back into the x of (B) [see get_var_solution()]. */
+
+ AbstractBlock * f_mirror{};
 
  /// the sub-Block of (B) the master Solver has to ignore
  /** The subproblems now live inside the BendersBFunction, but they are still
@@ -980,6 +1069,9 @@ class BendersDecompositionSolver : public CDASolver
  /// the complicating (first-stage) Variable x, in master order
  std::vector< ColVariable * > v_x;
 
+ /// the x as the master has them: v_x, or their copies in f_mirror
+ std::vector< ColVariable * > v_mx;
+
  /// the position of each complicating Variable in v_x
  std::map< const ColVariable * , Index > x_index;
 
@@ -993,6 +1085,9 @@ class BendersDecompositionSolver : public CDASolver
 
  /// the Benders cuts of the MILP master
  std::list< FRowConstraint > * v_cuts{};
+
+ /// the rows of the trust region of the MILP master, one per x
+ std::list< FRowConstraint > * v_trust{};
 
  /// the phase-one value function of each subproblem, if it is being used
  /** One per subproblem, each on a replica of it that carries a slack of unit
@@ -1018,6 +1113,11 @@ class BendersDecompositionSolver : public CDASolver
 
  /// the sides each coupling Constraint had before the x were taken out of it
  std::vector< std::vector< std::pair< double , double > > > v_sides0;
+
+ /// the x terms each coupling Constraint had, with their coefficients,
+ /// which are put back as they were [see dismantle()]: the opposite of the
+ /// mapping divided by the weight of the x would be lost with a weight 0
+ std::vector< std::vector< LinearFunction::v_coeff_pair > > v_coeff0;
 
  /// the core point the Pareto-optimal cuts are generated at, in master order
  std::vector< double > v_core;
@@ -1053,12 +1153,20 @@ class BendersDecompositionSolver : public CDASolver
  double f_core_move = 0.5;  ///< dbl_BDSlv_CoreMove
 
  double f_pareto_mu = 0.1;  ///< dbl_BDSlv_ParetoMu
+
+ double f_tr_radius = 0;  ///< dblTRRadius
+ double f_cut_tol = 1e-9;   ///< dblCutTol
  double f_rel_acc = 1e-6;   ///< dblRelAcc, the gap kOK tolerates
 
  double f_max_time = Inf< double >();  ///< dblMaxTime, for a whole call
 
  double f_master_max_time = Inf< double >();
                            ///< the dblMaxTime the master is configured with
+
+ /// the dblMaxTime the Solver of each v_BF and v_BF1 is configured with
+ /// [see sub_time_limit()]
+ std::vector< double > v_BF_max_time;
+ std::vector< double > v_BF1_max_time;
 
  std::chrono::steady_clock::time_point f_start;  ///< when compute() began
 

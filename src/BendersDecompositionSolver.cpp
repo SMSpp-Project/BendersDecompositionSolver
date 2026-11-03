@@ -82,7 +82,9 @@ static const std::vector< std::string > int_pars_BDSlv = {
 static const std::vector< std::string > dbl_pars_BDSlv = {
  "dbl_BDSlv_CoreMove" ,
  "dbl_BDSlv_EpiWeight" ,
- "dbl_BDSlv_ParetoMu"
+ "dbl_BDSlv_ParetoMu" ,
+ "dblTRRadius" ,
+ "dblCutTol"
  };
 
 static const std::vector< std::string > vint_pars_BDSlv = {
@@ -96,6 +98,58 @@ static const std::vector< std::string > str_pars_BDSlv = {
  "str_Mstr_BSCfg" ,
  "strRecoveryBSC"
  };
+
+/*--------------------------------------------------------------------------*/
+/*------------------------------- FUNCTIONS --------------------------------*/
+/*--------------------------------------------------------------------------*/
+
+// calls one( k ) for each k in [ 0 , K ), in at most nt threads (this one
+// among them), each k taken by the first thread that is free; the first
+// exception thrown stops the others at their next k and is thrown again here
+
+static void parallel_for( std::size_t K , int nt ,
+			  const std::function< void( std::size_t ) > & one )
+{
+ nt = int( std::min( std::size_t( std::max( nt , 1 ) ) , K ) );
+ if( nt <= 1 ) {
+  for( std::size_t k = 0 ; k < K ; ++k )
+   one( k );
+  return;
+  }
+
+ std::atomic< std::size_t > next( 0 );
+ std::exception_ptr error;
+ std::mutex error_mutex;
+
+ auto worker = [ & ]( void ) {
+  for( ; ; ) {
+   const std::size_t k = next++;
+   if( k >= K )
+    return;
+   try {
+    one( k );
+    }
+   catch( ... ) {
+    std::lock_guard< std::mutex > guard( error_mutex );
+    if( ! error )
+     error = std::current_exception();
+    next = K;  // the others stop at their next k
+    return;
+    }
+   }
+  };
+
+ std::vector< std::thread > pool;
+ pool.reserve( nt - 1 );
+ for( int t = 1 ; t < nt ; ++t )
+  pool.emplace_back( worker );
+ worker();
+ for( auto & th : pool )
+  th.join();
+
+ if( error )
+  std::rethrow_exception( error );
+ }
 
 /*--------------------------------------------------------------------------*/
 /*--------------- CONSTRUCTING AND DESTRUCTING -----------------------------*/
@@ -171,20 +225,18 @@ void BendersDecompositionSolver::dismantle( void )
   if( ( ! bf ) || ( k >= v_sides0.size() ) )
    continue;
 
-  const auto & A = bf->get_A();
   const auto & cns = bf->get_constraints();
   const auto & sd0 = v_sides0[ k ];
+  const auto & cf0 = v_coeff0[ k ];
 
-  for( Index j = 0 ; ( j < cns.size() ) && ( j < sd0.size() ) ; ++j ) {
+  for( Index j = 0 ; ( j < cns.size() ) && ( j < sd0.size() ) &&
+                     ( j < cf0.size() ) ; ++j ) {
    auto cn = dynamic_cast< FRowConstraint * >( cns[ j ] );
    if( ! cn )
     continue;
 
    if( auto lf = dynamic_cast< LinearFunction * >( cn->get_function() ) ) {
-    LinearFunction::v_coeff_pair cp;
-    for( Index i = 0 ; ( i < A[ j ].size() ) && ( i < v_x.size() ) ; ++i )
-     if( A[ j ][ i ] )
-      cp.emplace_back( v_x[ i ] , - A[ j ][ i ] );
+    LinearFunction::v_coeff_pair cp( cf0[ j ] );
 
     if( ! cp.empty() ) {
      lf->add_variables( LinearFunction::v_coeff_pair( cp ) , eNoMod );
@@ -200,6 +252,7 @@ void BendersDecompositionSolver::dismantle( void )
   }
 
  v_sides0.clear();
+ v_coeff0.clear();
 
  /* Each subproblem is owned by (B), which still has it among its sub-Block:
   * the BendersBFunction has to let go of it, or it would be deleted twice.
@@ -212,7 +265,16 @@ void BendersDecompositionSolver::dismantle( void )
    sub->set_f_Block( f_Block );
    }
 
- if( f_master == f_Block ) {
+ if( f_mirror ) {
+  /* The master is the copy of (B), which owns the copies of the subproblems
+   * and the value-function sub-Block, and through their Objective the
+   * BendersBFunction: deleting it disposes of all of them. */
+
+  delete f_mirror;
+  f_mirror = nullptr;
+  v_wrap.clear();
+  }
+ else if( f_master == f_Block ) {
   /* The value-function sub-Block have been added to (B), and each of them
    * owns, through its Objective, the BendersBFunction it carries: deleting
    * them is deleting those, and (B) is left with the sub-Block it had. */
@@ -246,6 +308,14 @@ void BendersDecompositionSolver::dismantle( void )
    v_cuts->clear();
    }
 
+  // the same holds for the rows of the trust region, which are over the x
+  if( v_trust ) {
+   for( auto & row : *v_trust )
+    row.set_function( nullptr , eNoMod );
+
+   v_trust->clear();
+   }
+
   for( auto bf : v_BF )
    delete bf;
 
@@ -255,6 +325,7 @@ void BendersDecompositionSolver::dismantle( void )
   delete f_master;
   v_eta = nullptr;
   v_cuts = nullptr;
+  v_trust = nullptr;
   }
 
  /* The phase-one replicas are this Solver's own, and each of them is owned by
@@ -265,11 +336,14 @@ void BendersDecompositionSolver::dismantle( void )
 
  v_BF1.clear();
  v_phase1.clear();
+ v_BF1_max_time.clear();
 
  v_BF.clear();
+ v_BF_max_time.clear();
  v_sub.clear();
  f_ignored.clear();
  v_x.clear();
+ v_mx.clear();
  x_index.clear();
  f_master = nullptr;
  f_Block_father = nullptr;
@@ -398,6 +472,20 @@ void BendersDecompositionSolver::get_var_solution( Configuration * solc )
  if( f_master_solver )
   f_master_solver->get_var_solution( solc );
 
+ // the master is a copy of (B), whose x take the values of their copies
+ if( f_mirror && f_master_solver )
+  for( Index i = 0 ; i < v_x.size() ; ++i )
+   v_x[ i ]->set_value( v_mx[ i ]->get_value() );
+
+ /* A bundle-type master evaluates the value functions at its trial points,
+  * the last of which need not be the solution it returns, i.e., its
+  * stability center: the y^k read below have to be those of the solution,
+  * whence the value functions are evaluated there once more. */
+
+ if( ( f_regime == eConvexMaster ) && f_master_solver )
+  for( auto bf : v_BF )
+   bf->compute();
+
  for( auto bf : v_BF )
   if( auto sub = bf->get_inner_block() )
    for( auto slvr : sub->get_registered_solvers() )
@@ -462,6 +550,24 @@ void BendersDecompositionSolver::master_time_limit( void )
  }  // end( BendersDecompositionSolver::master_time_limit )
 
 /*--------------------------------------------------------------------------*/
+
+void BendersDecompositionSolver::sub_time_limit( BendersBFunction * bf ,
+						 double & own )
+{
+ if( own < 0 ) {
+  if( f_max_time >= Inf< double >() )
+   return;
+  own = bf->get_dbl_par( Function::dblMaxTime );
+  }
+
+ // with no time limit of this Solver, the one of the subproblem is given back
+ const double left = f_max_time < Inf< double >() ?
+  std::max( f_max_time - get_elapsed_time() , 0.0 ) : Inf< double >();
+ bf->set_par( Function::dblMaxTime , std::min( own , left ) );
+
+ }  // end( BendersDecompositionSolver::sub_time_limit )
+
+/*--------------------------------------------------------------------------*/
 /*------------------------- HANDLING PARAMETERS ----------------------------*/
 /*--------------------------------------------------------------------------*/
 
@@ -522,6 +628,8 @@ double BendersDecompositionSolver::get_dflt_dbl_par( idx_type par ) const
   case( dbl_BDSlv_CoreMove ): return( 0.5 );
   case( dbl_BDSlv_EpiWeight ): return( 1 );
   case( dbl_BDSlv_ParetoMu ): return( 0.1 );
+  case( dblTRRadius ):        return( 0 );
+  case( dblCutTol ):          return( 1e-9 );
   default:                    return( CDASolver::get_dflt_dbl_par( par ) );
   }
  }
@@ -668,6 +776,8 @@ void BendersDecompositionSolver::set_par( idx_type par , double value )
   case( dbl_BDSlv_CoreMove ): f_core_move = value; return;
   case( dbl_BDSlv_EpiWeight ): f_epi_weight = value; return;
   case( dbl_BDSlv_ParetoMu ): f_pareto_mu = value; return;
+  case( dblTRRadius ):        f_tr_radius = value; return;
+  case( dblCutTol ):          f_cut_tol = value;   return;
   case( dblRelAcc ):          f_rel_acc = value;   return;
   case( dblMaxTime ):         f_max_time = value;  return;
   default:                    CDASolver::set_par( par , value );
@@ -728,6 +838,8 @@ double BendersDecompositionSolver::get_dbl_par( idx_type par ) const
   case( dbl_BDSlv_CoreMove ):  return( f_core_move );
   case( dbl_BDSlv_EpiWeight ): return( f_epi_weight );
   case( dbl_BDSlv_ParetoMu ):  return( f_pareto_mu );
+  case( dblTRRadius ):         return( f_tr_radius );
+  case( dblCutTol ):           return( f_cut_tol );
   case( dblRelAcc ):           return( f_rel_acc );
   case( dblMaxTime ):          return( f_max_time );
   default:                     return( CDASolver::get_dbl_par( par ) );
@@ -773,6 +885,11 @@ void BendersDecompositionSolver::reformulate( void )
 
  if( ! f_Block )
   throw( std::logic_error( _prfx + "no Block is set" ) );
+
+ // the abstract representation, which no other Solver may have asked for
+ f_Block->generate_abstract_variables();
+ f_Block->generate_abstract_constraints();
+ f_Block->generate_objective();
 
  /* The complicating Variable x are the ColVariable of the root Block, in the
   * order in which it exposes them: the root is the master, and everything
@@ -861,6 +978,7 @@ void BendersDecompositionSolver::reformulate( void )
 
  v_BF.assign( NS , nullptr );
  v_sides0.assign( NS , {} );
+ v_coeff0.assign( NS , {} );
 
  // the replica is the separation problem of the unified cut, too
  const bool p1 = ( f_feas_cut == ePhaseOne ) || ( f_unified != eNoUnified );
@@ -868,28 +986,67 @@ void BendersDecompositionSolver::reformulate( void )
  v_BF1.assign( p1 ? NS : 0 , nullptr );
  v_phase1.assign( p1 ? NS : 0 , nullptr );
 
+ v_BF_max_time.assign( NS , -1 );
+ v_BF1_max_time.assign( p1 ? NS : 0 , -1 );
+
  /* Once its Variable are projected out, a subproblem is no longer a part of
   * the master problem, but it is still a sub-Block of (B): it is the master
   * Solver that has to be told not to look at it. */
 
  f_ignored.clear();
 
+ /* The convex master has to be an AbstractBlock [see build_convex_master()]:
+  * if (B) is not one, the master is a copy of it, taken before the x leave
+  * the subproblems, and the value functions are written in the copies of
+  * the x, which are what the master Solver reads; the copies of the
+  * subproblems are ignored as the subproblems are. A copy that is only a
+  * relaxation of (B) is no master of (B). */
+
+ v_mx = v_x;
+ if( ( f_regime == eConvexMaster ) &&
+     ( ! dynamic_cast< AbstractBlock * >( f_Block ) ) ) {
+  f_mirror = new AbstractBlock;
+  f_mirror->mirror( f_Block );
+  if( ! f_mirror->get_mirror_issues().empty() ) {
+   const auto why = f_mirror->get_mirror_issues().front();
+   delete f_mirror;
+   f_mirror = nullptr;
+   throw( std::logic_error( _prfx + "the convex master is a copy of the "
+                            "Block, which cannot be copied: " + why ) );
+   }
+  for( auto & x : v_mx )
+   x = f_mirror->mirror_of( x );
+  }
+
  for( Index k = 0 ; k < NS ; ++k ) {
-  f_ignored.insert( f_Block->get_nested_Block( v_sub[ k ] ) );
+  f_ignored.insert( f_mirror ? f_mirror->get_nested_Block( v_sub[ k ] )
+                             : f_Block->get_nested_Block( v_sub[ k ] ) );
   build_BendersBFunction( k );
   }
 
  /* Each subproblem needs a Solver of its own, since evaluating the value
   * function means solving it: which one is a Configuration matter, so that
-  * heterogeneous subproblems can be dealt with. */
+  * heterogeneous subproblems can be dealt with. Giving a subproblem its
+  * Solver (which loads the subproblem into it) touches nothing but its own
+  * sub-Block, as evaluating it does [see compute()], so that the
+  * subproblems get their Solver in f_max_thread threads; the Solver are
+  * then recorded in the order of the subproblems. */
 
  if( ! f_Bsub_BSCfg.empty() ) {
+  std::vector< Block * > subs;
   for( auto bf : v_BF )
-   apply_BSCfg( bf->get_inner_block() , f_Bsub_BSCfg );
-
+   subs.push_back( bf->get_inner_block() );
   for( auto bf : v_BF1 )
    if( bf )
-    apply_BSCfg( bf->get_inner_block() , f_Bsub_BSCfg );
+    subs.push_back( bf->get_inner_block() );
+
+  std::vector< std::vector< std::pair< Block * , Solver * > > >
+   attached( subs.size() );
+  parallel_for( subs.size() , f_max_thread , [ & ]( std::size_t k ) {
+                 apply_BSCfg( subs[ k ] , f_Bsub_BSCfg , attached[ k ] ); } );
+
+  for( auto & a : attached )
+   v_sub_solvers.insert( v_sub_solvers.end() , a.begin() , a.end() );
   }
 
  // assemble the master- - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -944,6 +1101,8 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
  // back when the reformulation is undone [see dismantle()]
  auto & sd0 = v_sides0[ k ];
  sd0.clear();
+ auto & cf0 = v_coeff0[ k ];
+ cf0.clear();
 
  auto scan = [ & ]( FRowConstraint & con ) {
   const Index pos = scanned++;
@@ -953,6 +1112,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
 
   Subset nms;             // the positions of the x terms in the Function
   std::vector< ColVariable * > rmv;   // and the x themselves
+  LinearFunction::v_coeff_pair removed;   // with their coefficients
   BendersBFunction::RealVector row;
 
   Index i = 0;
@@ -961,9 +1121,11 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
    if( xit != x_index.end() ) {
     if( row.empty() )
      row.assign( v_x.size() , 0 );
-    row[ xit->second ] -= cp.second;
+    // the coefficient the Solver of (B) would see [see x_weight()]
+    row[ xit->second ] -= cp.second * x_weight( xit->second );
     nms.push_back( i );
     rmv.push_back( v_x[ xit->second ] );
+    removed.emplace_back( v_x[ xit->second ] , cp.second );
     }
    ++i;
    }
@@ -980,6 +1142,7 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
   A.push_back( std::move( row ) );
   b.push_back( lhs ? con.get_lhs() : con.get_rhs() );
   sd0.emplace_back( con.get_lhs() , con.get_rhs() );
+  cf0.push_back( std::move( removed ) );
   cns.push_back( & con );
   cpl.push_back( pos );
   sides.push_back( ( lhs && rhs ) ? BendersBFunction::eBoth
@@ -1006,12 +1169,6 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
  sub->for_each_constraint_group( [ & scan ]( const BaseGroup & group ) {
    group.for_each_as< FRowConstraint >( scan ); } );
 
- if( cns.empty() )
-  throw( std::logic_error( _prfx + "sub-Block " +
-                           std::to_string( v_sub[ k ] ) +
-                           " is not coupled to the master by any linear "
-                           "Constraint" ) );
-
  /* The phase one is built before the mapping is handed over, it being built
   * on the same one. */
 
@@ -1023,14 +1180,15 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
   }
 
  v_BF[ k ] = new BendersBFunction(
-  sub , BendersBFunction::VarVector( v_x ) , std::move( A ) , std::move( b ) ,
+  sub , BendersBFunction::VarVector( v_mx ) , std::move( A ) , std::move( b ) ,
   std::move( cns ) , std::move( sides ) , nullptr );
 
  }  // end( BendersDecompositionSolver::build_BendersBFunction )
 
 /*--------------------------------------------------------------------------*/
 
-void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
+void BendersDecompositionSolver::build_phase_one( Index k ,
+                       const Subset & cpl ,
                        const std::vector< std::vector< double > > & A ,
                        const std::vector< double > & b ,
                        const std::vector< int > & sides )
@@ -1206,12 +1364,17 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
  double oct = 0;
  bool nonlinear = false;
 
- std::function< void( Block * ) > strip = [ & ]( Block * b ) {
+ // each Objective with its weight [see Block::set_objective_weight()],
+ // the product of the weights from the replica down to its Block, that of
+ // the replica comprised, as the BendersBFunction of the subproblem has it
+ std::function< void( Block * , double ) > strip = [ & ]( Block * b ,
+							   double w ) {
   if( auto ob = dynamic_cast< FRealObjective * >( b->get_objective() ) ) {
    if( auto lf = dynamic_cast< LinearFunction * >( ob->get_function() ) ) {
     for( auto & vp : lf->get_v_var() )
-     ocp.emplace_back( const_cast< ColVariable * >( vp.first ) , vp.second );
-    oct += lf->get_constant_term();
+     ocp.emplace_back( const_cast< ColVariable * >( vp.first ) ,
+                       w * vp.second );
+    oct += w * lf->get_constant_term();
     }
    else
     if( ob->get_function() )
@@ -1221,10 +1384,11 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
    }
 
   for( Index i = 0 ; i < b->get_number_nested_Blocks() ; ++i )
-   strip( b->get_nested_Block( i ) );
+   strip( b->get_nested_Block( i ) ,
+          w * b->get_nested_Block( i )->get_objective_weight() );
   };
 
- strip( rep );
+ strip( rep , rep->get_objective_weight() );
 
  ColVariable * s0 = nullptr;
 
@@ -1291,11 +1455,20 @@ void BendersDecompositionSolver::build_phase_one( Index k , const Subset & cpl ,
  if( s0 )
   olf->add_variable( s0 , f_epi_weight , eNoMod );
 
- auto obj = new FRealObjective( rep , olf );
- obj->set_sense( Objective::eMin , eNoMod );
+ /* The Objective the copy took from the subproblem is the copy's own, which
+  * deletes it [see AbstractBlock::mirror()]: it is given the new Function,
+  * the old one going. Only a copy that could not take it gets one made
+  * here, which outlives the copy. */
 
- delete rep->get_objective();   // the one the copy took from the subproblem
- rep->set_objective( obj , eNoMod );
+ if( auto obj = dynamic_cast< FRealObjective * >( rep->get_objective() ) ) {
+  obj->set_function( olf , eNoMod , true );
+  obj->set_sense( Objective::eMin , eNoMod );
+  }
+ else {
+  auto nobj = new FRealObjective( rep , olf );
+  nobj->set_sense( Objective::eMin , eNoMod );
+  rep->set_objective( nobj , eNoMod );
+  }
 
  BendersBFunction::VarVector vx1( v_x );
  if( f_unified != eNoUnified )   // the unified cut is a cut in ( x , eta )
@@ -1331,11 +1504,10 @@ void BendersDecompositionSolver::build_convex_master( void )
   * (B) keeps owning them and the value-function sub-Block are simply added
   * next to them. */
 
- f_master = dynamic_cast< AbstractBlock * >( f_Block );
+ f_master = f_mirror ? f_mirror : dynamic_cast< AbstractBlock * >( f_Block );
  if( ! f_master )
   throw( std::logic_error( _prfx + "the convex master has to be assembled "
-                           "into the Block, which therefore has to be an "
-                           "AbstractBlock" ) );
+                           "into an AbstractBlock" ) );
 
  const bool mx = f_master->get_objective() &&
                  ( f_master->get_objective()->get_sense() == Objective::eMax );
@@ -1404,10 +1576,18 @@ void BendersDecompositionSolver::build_MILP_master( void )
   * Block it is made of, this is an Objective of the master Block alone, and
   * the one of (B) stays what it was. */
 
+ /* The master Solver sees (B) as a sub-Block of the master, hence with the
+  * weight of its Objective [see Block::set_objective_weight()], which as
+  * the Block of this Solver it does not have: the epigraph Variable, which
+  * the cuts keep in the scale of the value functions, are given that
+  * weight in turn, so that the master is the problem times it, and its
+  * bound is divided by it [see solve_MILP_master()]. */
+
  LinearFunction::v_coeff_pair cp;
  cp.reserve( neta );
+ const double wB = f_Block->get_objective_weight();
  for( auto & eta : *v_eta )
-  cp.emplace_back( & eta , 1 );
+  cp.emplace_back( & eta , wB );
 
  auto obj = new FRealObjective( f_master ,
                                 new LinearFunction( std::move( cp ) ) );
@@ -1416,6 +1596,10 @@ void BendersDecompositionSolver::build_MILP_master( void )
 
  v_cuts = new std::list< FRowConstraint >;
  f_master->add_dynamic_constraint( *v_cuts , "cuts" );
+
+ // the trust region, if any, is filled at the start of each cut loop
+ v_trust = new std::list< FRowConstraint >;
+ f_master->add_dynamic_constraint( *v_trust , "trust" );
 
  }  // end( BendersDecompositionSolver::build_MILP_master )
 
@@ -1428,12 +1612,15 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
  const Index nx = v_x.size();
  const Index K = v_BF.size();
- /* How much a cut has to be violated to be worth adding, relative to the
-  * value of the function it cuts: an absolute threshold would be below the
-  * noise of the master on an instance whose values are large, and the loop
-  * would keep separating cuts that say nothing. */
+ /* How much a cut has to be violated to be worth adding (dblCutTol),
+  * relative to the value of the function it cuts: an absolute threshold
+  * would be below the noise of the master on an instance whose values are
+  * large, and the loop would keep separating cuts that say nothing. It is
+  * also what the gap of the loop can be closed to, and a master Solver
+  * that holds the cuts more tightly than its default can take a smaller
+  * one. */
 
- const double tol = 1e-9;
+ const double tol = f_cut_tol;
 
  auto violated = [ tol ]( double f , double eta ) {
   return( f - eta > tol * std::max( 1.0 , std::abs( f ) ) );
@@ -1620,6 +1807,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
     * way, no subproblem is feasible for any x, hence (B) is not, and the
     * status travels up as it comes. */
 
+   sub_time_limit( bf , v_BF1_max_time[ k ] );
    const int st = bf->compute();
    if( ( st != kOK ) && ( st != kLowPrecision ) ) {
     status = st;
@@ -1697,6 +1885,19 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   * current assignment and nothing else, hence it is written out of the
   * incumbent rather than out of any certificate. */
 
+ /* An infeasible subproblem whose Solver gives no certificate, when one is
+  * needed, cannot be cut away. */
+
+ auto no_certificate = [ & ]( Index k ) {
+  throw( std::logic_error( _prfx + "subproblem " + std::to_string( k ) +
+                           " is infeasible and its Solver gives no "
+                           "unbounded dual direction, hence no feasibility "
+                           "cut can be generated: switch the presolve of "
+                           "the subproblem Solver off, it detecting the "
+                           "infeasibility on the reduced problem and "
+                           "leaving no certificate for the original one" ) );
+  };
+
  auto add_feasibility_cut = [ & ]( Index kk , const std::vector< double > & g ,
                                    double alpha , bool check = true ) {
   if( f_feas_cut == eAlwaysFeasible )
@@ -1718,6 +1919,9 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    std::vector< double > g1( nx , 0 );
    double alpha1 = 0;
 
+   if( bf )
+    sub_time_limit( bf , v_BF1_max_time[ kk ] );
+
    if( bf && ( bf->compute() == kOK ) &&
        ( bf->has_linearization( true ) ||
          bf->compute_new_linearization( true ) ) ) {
@@ -1734,6 +1938,10 @@ int BendersDecompositionSolver::solve_MILP_master( void )
      }
     }
 
+   // the certificate is there only if the Solver of the subproblem gives
+   // one [see get_cut()]
+   if( g.empty() )
+    no_certificate( kk );
    add_cut( nullptr , g , alpha );
    return;
    }
@@ -1766,6 +1974,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
                        bool & diagonal ) {
   auto bf = v_BF[ k ];
 
+  sub_time_limit( bf , v_BF_max_time[ k ] );
   const int st = bf->compute();
 
   // a subproblem solved to less than the accuracy asked is taken, as the
@@ -1788,13 +1997,14 @@ int BendersDecompositionSolver::solve_MILP_master( void )
      throw( std::logic_error( _prfx + "no linearization of subproblem " +
                               std::to_string( k ) ) );
 
-    throw( std::logic_error( _prfx + "subproblem " + std::to_string( k ) +
-                             " is infeasible and its Solver gives no "
-                             "unbounded dual direction, hence no feasibility "
-                             "cut can be generated: switch the presolve of "
-                             "the subproblem Solver off, it detecting the "
-                             "infeasibility on the reduced problem and "
-                             "leaving no certificate for the original one" ) );
+    // the phase one needs no certificate unless its cut does not cut the
+    // incumbent, which is when its absence is an error [see
+    // add_feasibility_cut()]: an empty g says it is not there
+    if( f_feas_cut == ePhaseOne ) {
+     g.clear();
+     return( int( kOK ) );
+     }
+    no_certificate( k );
     }
 
   bf->get_linearization_coefficients( g.data() , Range( 0 , nx ) );
@@ -1821,51 +2031,10 @@ int BendersDecompositionSolver::solve_MILP_master( void )
  std::vector< Evaluation > v_eval( K );
 
  auto evaluate_all = [ & ]( void ) {
-  auto one = [ & ]( Index k ) {
-   auto & e = v_eval[ k ];
-   e.g.assign( nx , 0 );
-   e.status = get_cut( k , e.g , e.alpha , e.diagonal );
-   };
-
-  const Index nt = std::min( Index( std::max( f_max_thread , 1 ) ) , K );
-  if( nt <= 1 ) {
-   for( Index k = 0 ; k < K ; ++k )
-    one( k );
-   return;
-   }
-
-  std::atomic< Index > next( 0 );
-  std::exception_ptr error;
-  std::mutex error_mutex;
-
-  auto worker = [ & ]( void ) {
-   for( ; ; ) {
-    const Index k = next++;
-    if( k >= K )
-     return;
-    try {
-     one( k );
-     }
-    catch( ... ) {
-     std::lock_guard< std::mutex > guard( error_mutex );
-     if( ! error )
-      error = std::current_exception();
-     next = K;  // the others stop at their next subproblem
-     return;
-     }
-    }
-   };
-
-  std::vector< std::thread > pool;
-  pool.reserve( nt - 1 );
-  for( Index t = 1 ; t < nt ; ++t )
-   pool.emplace_back( worker );
-  worker();
-  for( auto & th : pool )
-   th.join();
-
-  if( error )
-   std::rethrow_exception( error );
+  parallel_for( K , f_max_thread , [ & ]( std::size_t k ) {
+                 auto & e = v_eval[ k ];
+                 e.g.assign( nx , 0 );
+                 e.status = get_cut( k , e.g , e.alpha , e.diagonal ); } );
   };
 
  /* The Pareto-optimal cuts of Papadakos: the very same evaluation, but at the
@@ -1953,16 +2122,27 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
  /* One line of log per round, if a log is attached: the lower bound of the
   * master, the best upper bound found so far, the cuts added in the round
-  * (and in all) and the time. The upper bound of a round is the master
-  * value plus how much the value functions are above their epigraph
+  * (and in all) and the time. The upper bound of a round is the value of
+  * the incumbent of the master (above its lower bound in a MILP stopped
+  * with a gap) plus how much the value functions are above their epigraph
   * Variable at the incumbent, which is the value of the incumbent only when
   * every subproblem has one, i.e., when none has given a feasibility cut. */
 
  double best_ub = Inf< double >();
+ double inc_value = Inf< double >();
+
+ // the value of the master, which is a lower bound only without the box of
+ // the trust region [see inc_value for that of its incumbent]
+ double mval = - Inf< double >();
+
+ // whether the box of the trust region is in the master, and its radius
+ bool tr_on = false;
+ double tr_delta = f_tr_radius;
 
  auto log_round = [ & ]( Index added , bool feasible , double excess ) {
   if( feasible )
-   best_ub = std::min( best_ub , f_value + std::max( excess , 0.0 ) );
+   best_ub = std::min( best_ub , inc_value + std::max( excess , 0.0 ) /
+                       f_Block->get_objective_weight() );
   if( ! f_log )
    return;
   const auto prec = f_log->precision();
@@ -1972,10 +2152,167 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    *f_log << best_ub;
   else
    *f_log << "inf";
-  *f_log << ", cuts " << added << " (" << f_cuts << ")"
+  *f_log << ", cuts " << added << " (" << f_cuts << ")";
+  if( tr_on )
+   *f_log << ", box " << tr_delta;
+  *f_log
 	 << std::setprecision( 3 ) << ", " << get_elapsed_time() << " s"
 	 << std::setprecision( prec ) << std::endl;
   };
+
+ /* A cut is violated by more than tol at an incumbent where the master,
+  * which has it already, only satisfies it up to its own tolerances: added
+  * once more, it gives back the same incumbent, and the loop would go on
+  * forever. Hence, when the master gives back the incumbent of the last
+  * round, no optimality cut is added again and the round is the last one,
+  * with the gap that finish() finds. */
+
+ std::vector< double > last_x , last_eta;
+
+ auto same_incumbent = [ & ]() {
+  std::vector< double > x( nx ) , eta( v_eta->size() );
+  for( Index i = 0 ; i < nx ; ++i )
+   x[ i ] = v_x[ i ]->get_value();
+  for( Index k = 0 ; k < eta.size() ; ++k )
+   eta[ k ] = (*v_eta)[ k ].get_value();
+  const bool same = ( x == last_x ) && ( eta == last_eta );
+  last_x = std::move( x );
+  last_eta = std::move( eta );
+  return( same );
+  };
+
+ /* The trust region [see dblTRRadius] is the box | x_i - c_i | <=
+  * delta around a center c, made of rows of the master, since the bounds of
+  * the x belong to (B). The center starts where the x are when the loop
+  * does, and moves to the incumbent x when this is a serious step, i.e.,
+  * when its value f( x ) is below that of the center by at least a fraction
+  * tr_m of the decrease that the master predicts; delta doubles when the box
+  * is binding at the incumbent of a serious step, and it never shrinks.
+  * When no cut is violated, the model is exact at the incumbent: if the box
+  * is not binding there, or the step is not a serious one, the box is taken
+  * away and the loop goes on as without it, so that the master value it
+  * stops with is a lower bound, whatever the x. */
+
+ const double tr_m = 0.1;
+ double tr_fc = Inf< double >();   // the value of the center
+ std::vector< double > tr_c;
+
+ auto tr_drop = [ & ]( void ) {
+  if( ! tr_on )
+   return;
+  f_master->remove_dynamic_constraints( *v_trust ,
+                                        Range( 0 , v_trust->size() ) ,
+                                        eModBlck );
+  tr_on = false;
+  };
+
+ auto tr_move = [ & ]( void ) {
+  auto row = v_trust->begin();
+  for( Index i = 0 ; i < nx ; ++i , ++row ) {
+   const double lo = tr_c[ i ] - tr_delta;
+   const double hi = tr_c[ i ] + tr_delta;
+   // the box never empty in between, for whoever reads it in the middle
+   if( lo > row->get_rhs() ) {
+    row->set_rhs( hi , eModBlck );
+    row->set_lhs( lo , eModBlck );
+    }
+   else {
+    row->set_lhs( lo , eModBlck );
+    row->set_rhs( hi , eModBlck );
+    }
+   }
+  };
+
+ /* What the trust region does at the end of a round, given the cuts added
+  * in it, whether every subproblem is feasible at the incumbent and how
+  * much the value functions are above their epigraph Variable there: true
+  * if the loop has to go on whether or not cuts have been added. */
+
+ auto tr_update = [ & ]( Index added , bool feasible , double excess ) {
+  bool binding = false;
+  for( Index i = 0 ; i < nx ; ++i )
+   if( std::abs( v_x[ i ]->get_value() - tr_c[ i ] ) >=
+       tr_delta * ( 1 - 1e-9 ) ) {
+    binding = true;
+    break;
+    }
+
+  bool serious = false;
+  if( feasible ) {
+   const double fx = inc_value + std::max( excess , 0.0 ) /
+                     f_Block->get_objective_weight();
+   serious = ( tr_fc == Inf< double >() ) ||
+             ( fx <= tr_fc - tr_m * ( tr_fc - mval ) );
+   if( serious ) {
+    for( Index i = 0 ; i < nx ; ++i )
+     tr_c[ i ] = v_x[ i ]->get_value();
+    tr_fc = fx;
+    if( binding )
+     tr_delta *= 2;
+    }
+   }
+
+  if( added ) {
+   if( serious )
+    tr_move();
+   return( false );
+   }
+
+  if( serious && binding )
+   tr_move();
+  else
+   tr_drop();
+  return( true );
+  };
+
+ // a box left by a previous call, which has stopped with it, goes away
+ if( ! v_trust->empty() )
+  f_master->remove_dynamic_constraints( *v_trust ,
+                                        Range( 0 , v_trust->size() ) ,
+                                        eModBlck );
+
+ if( ( f_tr_radius > 0 ) && nx ) {
+  tr_c.resize( nx );
+  std::list< FRowConstraint > nr( nx );
+  auto row = nr.begin();
+  for( Index i = 0 ; i < nx ; ++i , ++row ) {
+   tr_c[ i ] = v_x[ i ]->get_value();
+   LinearFunction::v_coeff_pair cp( { { v_x[ i ] , 1 } } );
+   row->set_function( new LinearFunction( std::move( cp ) ) );
+   row->set_lhs( tr_c[ i ] - tr_delta );
+   row->set_rhs( tr_c[ i ] + tr_delta );
+   }
+  f_master->add_dynamic_constraints( *v_trust , nr , eModBlck );
+  tr_on = true;
+
+  /* The value functions at the center give the first cuts, those where the
+   * master is going to look first, and their sum with the Objective of (B)
+   * the value of the center, which the first serious step has to improve
+   * upon; a center where some subproblem has no solution only gives its
+   * feasibility cut, and the first master point becomes the center. */
+
+  evaluate_all();
+  bool cfeas = true;
+  double fc = 0;
+  for( Index k = 0 ; k < K ; ++k ) {
+   const int st = v_eval[ k ].status;
+   if( ( st != kOK ) && ( st != kLowPrecision ) )
+    return( st );
+   if( ! v_eval[ k ].diagonal ) {
+    add_feasibility_cut( k , v_eval[ k ].g , v_eval[ k ].alpha );
+    cfeas = false;
+    continue;
+    }
+   fc += v_BF[ k ]->get_value();
+   if( f_cut_type != eSingleCut )
+    add_cut( & (*v_eta)[ k ] , v_eval[ k ].g , v_eval[ k ].alpha );
+   }
+  auto ob = dynamic_cast< RealObjective * >( f_Block->get_objective() );
+  if( cfeas && ob ) {
+   ob->compute();
+   tr_fc = ob->value() + fc / f_Block->get_objective_weight();
+   }
+  }
 
  for( int round = 0 ; round < f_max_rounds ; ++round ) {
 
@@ -1991,12 +2328,27 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
   status = f_master_solver->compute( round > 0 );
 
+  // a box that leaves out all the master is taken away, and the master
+  // solved again without it
+  if( tr_on && ( status == kInfeasible ) ) {
+   tr_drop();
+   continue;
+   }
+
   if( ( status != kOK ) && ( status != kLowPrecision ) )
    return( status );
 
   f_master_solver->get_var_solution();
 
-  f_value = f_master_solver->get_lb();
+  // the MILP master is the problem times the weight of (B) [see
+  // build_MILP_master()]
+  mval = f_master_solver->get_lb() / f_Block->get_objective_weight();
+  inc_value = f_master_solver->get_ub() / f_Block->get_objective_weight();
+  if( inc_value == Inf< double >() )
+   inc_value = mval;
+  f_value = tr_on ? - Inf< double >() : mval;
+
+  const bool stalled = same_incumbent();
 
   /* The unified cuts are separated on their own: one problem per subproblem,
    * telling feasibility and optimality apart by itself, hence neither the
@@ -2020,7 +2372,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
      return( st );
     }
 
-   if( added )
+   if( added && ( ! stalled ) )
     continue;
 
    /* The separation problems say that the incumbent is in the epigraph of
@@ -2057,13 +2409,16 @@ int BendersDecompositionSolver::solve_MILP_master( void )
 
     const double eta = (*v_eta)[ k ].get_value();
     excess += v_BF[ k ]->get_value() - eta;
-    if( violated( at_x( g , alpha ) , eta ) ) {
+    if( ( ! stalled ) && violated( at_x( g , alpha ) , eta ) ) {
      add_cut( & (*v_eta)[ k ] , g , alpha );
      ++late;
      }
     }
 
    log_round( late , feasible , excess );
+
+   if( tr_on && tr_update( late , feasible , excess ) )
+    continue;
 
    if( late )
     continue;
@@ -2113,7 +2468,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    // the cut is violated only if the epigraph Variable is below the cut
    const double eta = (*v_eta)[ k ].get_value();
    excess += fk - eta;
-   if( violated( at_x( g , alpha ) , eta ) ) {
+   if( ( ! stalled ) && violated( at_x( g , alpha ) , eta ) ) {
     add_cut( & (*v_eta)[ k ] , g , alpha );
     ++added;
     }
@@ -2125,13 +2480,16 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   if( ( f_cut_type == eSingleCut ) && all_feasible ) {
    const double eta = (*v_eta)[ 0 ].get_value();
    excess = fs - eta;
-   if( violated( at_x( gs , as ) , eta ) ) {
+   if( ( ! stalled ) && violated( at_x( gs , as ) , eta ) ) {
     add_cut( & (*v_eta)[ 0 ] , gs , as );
     ++added;
     }
    }
 
   log_round( added , all_feasible , excess );
+
+  if( tr_on && tr_update( added , all_feasible , excess ) )
+   continue;
 
   if( ! added ) {   // no cut is violated: the master is the problem
    const int cl = finish( excess );
@@ -2192,9 +2550,20 @@ int BendersDecompositionSolver::recover_upper_bound( void )
   return( ( st == kOK ) || ( st == kLowPrecision ) );
   };
 
+ // the Solver of the recovery is a new one at each call, and so is the time
+ // limit it has of its own, which what is left of dblMaxTime can shorten
+ const auto shorten = [ this ]( BendersBFunction * bf ) {
+  if( f_max_time >= Inf< double >() )
+   return;
+  const double left = std::max( f_max_time - get_elapsed_time() , 0.0 );
+  bf->set_par( Function::dblMaxTime ,
+	       std::min( bf->get_dbl_par( Function::dblMaxTime ) , left ) );
+  };
+
  int status = kOK;
  for( auto bf : v_BF ) {
   if( ! milp ) {
+   shorten( bf );
    const int st = bf->compute();
    if( ! ok( st ) ) {
     status = st;
@@ -2209,6 +2578,7 @@ int BendersDecompositionSolver::recover_upper_bound( void )
 
   const auto used = bf->get_int_par( BendersBFunction::intSolverIndex );
   bf->set_par( BendersBFunction::intSolverIndex , int( nslv ) );
+  shorten( bf );
   const int st = bf->compute();
   if( ok( st ) )
    ub += bf->get_value();
@@ -2321,8 +2691,16 @@ void BendersDecompositionSolver::acquire_master_solver( void )
 
 /*--------------------------------------------------------------------------*/
 
+double BendersDecompositionSolver::x_weight( Index i ) const
+{
+ return( v_x[ i ]->get_Block()->get_variable_weight( f_Block ) );
+ }
+
+/*--------------------------------------------------------------------------*/
+
 void BendersDecompositionSolver::apply_BSCfg( Block * block ,
-                                              const std::string & fn )
+		 const std::string & fn ,
+		 std::vector< std::pair< Block * , Solver * > > & attached )
 {
  auto cfg = Configuration::deserialize( fn );
 
@@ -2332,7 +2710,7 @@ void BendersDecompositionSolver::apply_BSCfg( Block * block ,
   bsc->apply( blk );
   for( auto slv : blk->get_registered_solvers() )
    if( std::find( before.begin() , before.end() , slv ) == before.end() )
-    v_sub_solvers.emplace_back( blk , slv );
+    attached.emplace_back( blk , slv );
   };
 
  if( auto bsc = dynamic_cast< BlockSolverConfig * >( cfg ) ) {
