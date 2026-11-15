@@ -868,8 +868,9 @@ class BendersDecompositionSolver : public CDASolver
  /// set an int parameter
  /** Besides its own ones, BendersDecompositionSolver listens to intMaxThread
   * of ThinComputeInterface: the number of threads evaluating the
-  * subproblems of a round in the MILP regime, 1 (default) evaluating them
-  * one after the other. */
+  * subproblems of a round in the MILP regime, and solving them at the design
+  * in the recovery of both regimes [see strRecoveryBSC], 1 (default) doing
+  * it one after the other. */
 
  void set_par( idx_type par , int value ) override;
 
@@ -962,11 +963,11 @@ class BendersDecompositionSolver : public CDASolver
   * more at the design of the master (in the convex regime, the best point
   * of the bundle) by the Solver that the BlockSolverConfig in strRecoveryBSC
   * attaches to it (e.g., a :MILPSolver), in additive mode, and detached
-  * afterwards; the upper bound becomes the cost of the design plus the sum
-  * of those values, i.e., the value of a feasible solution. Returns kOK if
-  * that is within dblRelAcc of the lower bound, kLowPrecision if it is not,
-  * and the status of a subproblem whose Solver fails, leaving the upper
-  * bound as it was. */
+  * afterwards, the subproblems in intMaxThread threads; the upper bound
+  * becomes the cost of the design plus the sum of those values, i.e., the
+  * value of a feasible solution. Returns kOK if that is within dblRelAcc of
+  * the lower bound, kLowPrecision if it is not, and the status of a
+  * subproblem whose Solver fails, leaving the upper bound as it was. */
 
  int recover_upper_bound( void );
 
