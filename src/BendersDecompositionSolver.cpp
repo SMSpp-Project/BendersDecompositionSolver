@@ -2593,7 +2593,10 @@ int BendersDecompositionSolver::recover_upper_bound( void )
   bf->set_par( BendersBFunction::intSolverIndex , int( nslv ) );
   shorten( bf );
   const int st = bf->compute();
-  if( ok( st ) )
+  // a MILP stopped by its limits with a feasible solution still gives a
+  // value that bounds the subproblem, which the gap then accounts for
+  const bool stop = ( st == kStopTime ) || ( st == kStopIter );
+  if( ok( st ) || ( stop && std::abs( bf->get_value() ) < Inf< double >() ) )
    v_val[ k ] += bf->get_value();
   else {
    v_st[ k ] = st;

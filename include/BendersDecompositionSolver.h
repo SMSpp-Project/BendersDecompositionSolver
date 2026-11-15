@@ -965,9 +965,12 @@ class BendersDecompositionSolver : public CDASolver
   * attaches to it (e.g., a :MILPSolver), in additive mode, and detached
   * afterwards, the subproblems in intMaxThread threads; the upper bound
   * becomes the cost of the design plus the sum of those values, i.e., the
-  * value of a feasible solution. Returns kOK if that is within dblRelAcc of
-  * the lower bound, kLowPrecision if it is not, and the status of a
-  * subproblem whose Solver fails, leaving the upper bound as it was. */
+  * value of a feasible solution. A Solver stopped by its own limits (e.g.,
+  * the dblMaxTime of the ComputeConfig in strRecoveryBSC) with a feasible
+  * solution gives its value, which still bounds the subproblem. Returns kOK
+  * if the upper bound is within dblRelAcc of the lower bound, kLowPrecision
+  * if it is not, and the status of a subproblem whose Solver fails without
+  * a feasible solution, leaving the upper bound as it was. */
 
  int recover_upper_bound( void );
 

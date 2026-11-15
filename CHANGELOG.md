@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - the recovery of `strRecoveryBSC` solves the subproblems at the design in
   `intMaxThread` threads, as a round of the MILP regime evaluates them, in
   both regimes
+- a subproblem whose Solver of the recovery stops on its own limits with a
+  feasible solution gives its value to the upper bound, instead of failing
+  the recovery
 
 ## [0.3.0] - 2026-11-03
 
