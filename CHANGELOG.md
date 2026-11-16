@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   feasible solution gives its value to the upper bound, instead of failing
   the recovery
 
+### Fixed
+
+- the installed module `smspp.bendersdecompositionsolver` could not be
+  imported, since its package gave the interface of the module the target of
+  the library by its name in the build tree, which an installed package does
+  not have
+
 ## [0.3.0] - 2026-11-03
 
 ### Added
