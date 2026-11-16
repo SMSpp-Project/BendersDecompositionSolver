@@ -2516,18 +2516,6 @@ int BendersDecompositionSolver::recover_upper_bound( void )
  static const std::string _prfx =
                     "BendersDecompositionSolver::recover_upper_bound: ";
 
- auto cfg = Configuration::deserialize( f_RecoveryBSC );
- auto bsc = dynamic_cast< BlockSolverConfig * >( cfg );
- if( ! bsc ) {
-  delete cfg;
-  throw( std::invalid_argument( _prfx + f_RecoveryBSC +
-                                " is not a BlockSolverConfig" ) );
-  }
-
- // the Solver of the recovery come after those of the subproblem, which are
- // not touched, and are detached by the same BlockSolverConfig once cleared
- bsc->set_diff( BlockSolverConfig::eAddMode );
-
  /* The cost of the design. In the MILP regime it is the value of the master
   * without that of the epigraph Variable; in the convex regime the design is
   * the best point of the bundle, which the master Solver writes into the x,
@@ -2560,17 +2548,42 @@ int BendersDecompositionSolver::recover_upper_bound( void )
 	       std::min( bf->get_dbl_par( Function::dblMaxTime ) , left ) );
   };
 
- int status = kOK;
- for( auto bf : v_BF ) {
+ /* Solving a subproblem at the design touches nothing but its own sub-Block,
+  * its Solver and its BendersBFunction, as evaluating it does in a round
+  * [see compute()], hence the K recoveries run in f_max_thread threads. Each
+  * has a BlockSolverConfig of its own, whose Solver come after those of the
+  * subproblem, which are not touched, and are detached by the same
+  * BlockSolverConfig once cleared; the values are then summed in the order
+  * of k, and the first subproblem that fails stops those not yet started. */
+
+ const auto K = v_BF.size();
+ std::vector< int > v_st( K , kOK );
+ std::vector< double > v_val( K , 0 );
+ std::atomic< bool > failed( false );
+
+ parallel_for( K , f_max_thread , [ & ]( std::size_t k ) {
+  if( failed )
+   return;
+  auto bf = v_BF[ k ];
   if( ! milp ) {
    shorten( bf );
    const int st = bf->compute();
    if( ! ok( st ) ) {
-    status = st;
-    break;
+    v_st[ k ] = st;
+    failed = true;
+    return;
     }
-   ub -= bf->get_value();
+   v_val[ k ] -= bf->get_value();
    }
+
+  auto cfg = Configuration::deserialize( f_RecoveryBSC );
+  auto bsc = dynamic_cast< BlockSolverConfig * >( cfg );
+  if( ! bsc ) {
+   delete cfg;
+   throw( std::invalid_argument( _prfx + f_RecoveryBSC +
+                                 " is not a BlockSolverConfig" ) );
+   }
+  bsc->set_diff( BlockSolverConfig::eAddMode );
 
   auto sub = bf->get_inner_block();
   const auto nslv = sub->get_registered_solvers().size();
@@ -2580,23 +2593,28 @@ int BendersDecompositionSolver::recover_upper_bound( void )
   bf->set_par( BendersBFunction::intSolverIndex , int( nslv ) );
   shorten( bf );
   const int st = bf->compute();
-  if( ok( st ) )
-   ub += bf->get_value();
-  else
-   status = st;
+  // a MILP stopped by its limits with a feasible solution still gives a
+  // value that bounds the subproblem, which the gap then accounts for
+  const bool stop = ( st == kStopTime ) || ( st == kStopIter );
+  if( ok( st ) || ( stop && std::abs( bf->get_value() ) < Inf< double >() ) )
+   v_val[ k ] += bf->get_value();
+  else {
+   v_st[ k ] = st;
+   failed = true;
+   }
   bf->set_par( BendersBFunction::intSolverIndex , used );
 
-  if( status != kOK )
-   break;
-  }
+  bsc->clear();
+  bsc->apply( sub );
+  delete bsc;
+  } );
 
- bsc->clear();
- for( auto bf : v_BF )
-  bsc->apply( bf->get_inner_block() );
- delete bsc;
+ for( std::size_t k = 0 ; k < K ; ++k )
+  if( v_st[ k ] != kOK )
+   return( v_st[ k ] );
 
- if( status != kOK )
-  return( status );
+ for( auto v : v_val )
+  ub += v;
 
  f_ub = ub;
  f_recovered = true;

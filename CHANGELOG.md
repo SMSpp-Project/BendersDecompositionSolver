@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-16
+
+### Changed
+
+- the recovery of `strRecoveryBSC` solves the subproblems at the design in
+  `intMaxThread` threads, as a round of the MILP regime evaluates them, in
+  both regimes
+- a subproblem whose Solver of the recovery stops on its own limits with a
+  feasible solution gives its value to the upper bound, instead of failing
+  the recovery
+
+### Fixed
+
+- the installed module `smspp.bendersdecompositionsolver` could not be
+  imported, since its package gave the interface of the module the target of
+  the library by its name in the build tree, which an installed package does
+  not have
+
 ## [0.3.0] - 2026-11-03
 
 ### Added
@@ -371,7 +389,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   RPATH relative to itself, so that an installed tree keeps working wherever
   it is moved
 
-[Unreleased]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.3.0...develop
+[Unreleased]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.4.0...develop
+[0.4.0]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.3.0...0.4.0
 [0.3.0]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.2.0...0.3.0
 [0.2.0]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.1.1...0.2.0
 [0.1.1]: https://gitlab.com/smspp/bendersdecompositionsolver/-/compare/0.1.0...0.1.1
