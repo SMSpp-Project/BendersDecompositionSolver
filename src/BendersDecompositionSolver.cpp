@@ -84,7 +84,8 @@ static const std::vector< std::string > dbl_pars_BDSlv = {
  "dbl_BDSlv_EpiWeight" ,
  "dbl_BDSlv_ParetoMu" ,
  "dblTRRadius" ,
- "dblCutTol"
+ "dblCutTol" ,
+ "dblSubLB"
  };
 
 static const std::vector< std::string > vint_pars_BDSlv = {
@@ -630,6 +631,7 @@ double BendersDecompositionSolver::get_dflt_dbl_par( idx_type par ) const
   case( dbl_BDSlv_ParetoMu ): return( 0.1 );
   case( dblTRRadius ):        return( 0 );
   case( dblCutTol ):          return( 1e-9 );
+  case( dblSubLB ):           return( - Inf< double >() );
   default:                    return( CDASolver::get_dflt_dbl_par( par ) );
   }
  }
@@ -778,6 +780,7 @@ void BendersDecompositionSolver::set_par( idx_type par , double value )
   case( dbl_BDSlv_ParetoMu ): f_pareto_mu = value; return;
   case( dblTRRadius ):        f_tr_radius = value; return;
   case( dblCutTol ):          f_cut_tol = value;   return;
+  case( dblSubLB ):           f_sub_lb = value;    return;
   case( dblRelAcc ):          f_rel_acc = value;   return;
   case( dblMaxTime ):         f_max_time = value;  return;
   default:                    CDASolver::set_par( par , value );
@@ -840,6 +843,7 @@ double BendersDecompositionSolver::get_dbl_par( idx_type par ) const
   case( dbl_BDSlv_ParetoMu ):  return( f_pareto_mu );
   case( dblTRRadius ):         return( f_tr_radius );
   case( dblCutTol ):           return( f_cut_tol );
+  case( dblSubLB ):            return( f_sub_lb );
   case( dblRelAcc ):           return( f_rel_acc );
   case( dblMaxTime ):          return( f_max_time );
   default:                     return( CDASolver::get_dbl_par( par ) );
@@ -957,6 +961,12 @@ void BendersDecompositionSolver::reformulate( void )
  if( ( f_pareto == eSheraliLunday ) && ( f_unified == eNoUnified ) )
   throw( std::invalid_argument( _prfx + "the cut of Sherali and Lunday is "
                                 "written for the unified cut only" ) );
+
+ if( ( f_regime == eConvexMaster ) && ( f_feas_cut == eCombinatorial ) )
+  throw( std::invalid_argument( _prfx + "the combinatorial cut is not a "
+                                "linearization of a value function, hence the "
+                                "convex regime cannot give it to its master "
+                                "Solver" ) );
 
  if( f_unified != eNoUnified ) {
   if( f_regime != eMILPMaster )
@@ -1182,6 +1192,12 @@ void BendersDecompositionSolver::build_BendersBFunction( Index k )
  v_BF[ k ] = new BendersBFunction(
   sub , BendersBFunction::VarVector( v_mx ) , std::move( A ) , std::move( b ) ,
   std::move( cns ) , std::move( sides ) , nullptr );
+ v_BF[ k ]->set_global_lower_bound( f_sub_lb );
+
+ // in the convex regime the cut of the phase one reaches the master Solver
+ // as the vertical linearization of the value function
+ if( ( f_regime == eConvexMaster ) && ( ! v_BF1.empty() ) )
+  v_BF[ k ]->set_phase_one( v_BF1[ k ] );
 
  }  // end( BendersDecompositionSolver::build_BendersBFunction )
 
@@ -1470,7 +1486,8 @@ void BendersDecompositionSolver::build_phase_one( Index k ,
   rep->set_objective( nobj , eNoMod );
   }
 
- BendersBFunction::VarVector vx1( v_x );
+ // the x the master Solver moves, as those of the value function
+ BendersBFunction::VarVector vx1( v_mx );
  if( f_unified != eNoUnified )   // the unified cut is a cut in ( x , eta )
   vx1.push_back( & (*v_eta)[ k ] );
 

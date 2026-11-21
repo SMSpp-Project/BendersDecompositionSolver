@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- the parameter `dblSubLB`, a global lower bound on the value function of
+  each subproblem given to its `BendersBFunction`, by which the master of
+  the convex regime is bounded also with the cutting-plane method of
+  `BundleSolver` (`intMPStbl` 3); the default `-inf` means none
+
 ### Changed
 
 - the library is kept in whoever links it by a source that calls its
@@ -15,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   next to them only where there are any, and the installed run-time path is
   the one of `smspp_install_rpath()`, with no test on the system or on the
   compiler [see `SMSppModule.cmake` of SMS++]; CMake 3.24 or later is needed
+
+### Fixed
+
+- in the convex regime, `int_BDSlv_FeasCut` 3 gives each `BendersBFunction`
+  its phase one [see `BendersBFunction::set_phase_one()`], whose
+  linearization is the feasibility cut when the Solver of the subproblem
+  gives no Farkas ray, where before it was ignored; `int_BDSlv_FeasCut` 2,
+  which the convex regime cannot honour, is rejected
 
 ## [0.4.0] - 2026-11-16
 

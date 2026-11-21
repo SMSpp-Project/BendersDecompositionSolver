@@ -379,7 +379,13 @@ class BendersDecompositionSolver : public CDASolver
   *   than something assembled here: whatever that copy cannot reproduce is
   *   left out and said, which makes the phase one a relaxation, and a
   *   relaxation still cuts no feasible x; when its cut does not cut the
-  *   incumbent the Farkas certificate is asked for instead. */
+  *   incumbent the Farkas certificate is asked for instead.
+  *
+  * In the convex regime the cut is the vertical linearization that the
+  * BendersBFunction gives to the master Solver: the Farkas certificate, or,
+  * with #ePhaseOne, the cut of the phase one when the subproblem Solver
+  * gives no certificate [see BendersBFunction::set_phase_one()]; the
+  * no-good cut is not a linearization, and it is rejected there. */
 
  enum feasibility_cut_type {
   eAlwaysFeasible = 0 ,  ///< the subproblem cannot be infeasible
@@ -771,6 +777,11 @@ class BendersDecompositionSolver : public CDASolver
   dblCutTol ,
   ///< how much a cut of the MILP regime has to be violated at the incumbent
   ///< to be added, relative to max( 1 , | value | ) of the function it cuts
+
+  dblSubLB ,
+  ///< global lower bound on the value function of each subproblem, given to
+  ///< its BendersBFunction for the master Solver of the convex regime
+  ///< [see BendersBFunction::set_global_lower_bound()], - Inf for none
 
   dblLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
@@ -1185,6 +1196,7 @@ class BendersDecompositionSolver : public CDASolver
  int f_max_thread = 1;  ///< intMaxThread
 
  double f_epi_weight = 1;  ///< dbl_BDSlv_EpiWeight
+ double f_sub_lb = - Inf< double >();  ///< dblSubLB
 
  std::string f_MSName;   ///< str_BDSlv_MSName
 
