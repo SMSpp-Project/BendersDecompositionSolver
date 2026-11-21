@@ -97,7 +97,8 @@ static const std::vector< std::string > str_pars_BDSlv = {
  "str_BDSlv_MSName" ,
  "str_Bsub_BSCfg" ,
  "str_Mstr_BSCfg" ,
- "strRecoveryBSC"
+ "strRecoveryBSC" ,
+ "strPhaseOneBSC"
  };
 
 /*--------------------------------------------------------------------------*/
@@ -809,6 +810,7 @@ void BendersDecompositionSolver::set_par( idx_type par ,
   case( str_Bsub_BSCfg ):   f_Bsub_BSCfg = value; return;
   case( str_Mstr_BSCfg ):   f_Mstr_BSCfg = value; return;
   case( strRecoveryBSC ):   f_RecoveryBSC = value; return;
+  case( strPhaseOneBSC ):   f_PhaseOneBSC = value; return;
   default:                  CDASolver::set_par( par , value );
   }
  }
@@ -872,6 +874,7 @@ const std::string & BendersDecompositionSolver::get_str_par(
   case( str_Bsub_BSCfg ):   return( f_Bsub_BSCfg );
   case( str_Mstr_BSCfg ):   return( f_Mstr_BSCfg );
   case( strRecoveryBSC ):   return( f_RecoveryBSC );
+  case( strPhaseOneBSC ):   return( f_PhaseOneBSC );
   default:                  return( CDASolver::get_str_par( par ) );
   }
  }
@@ -1040,20 +1043,31 @@ void BendersDecompositionSolver::reformulate( void )
   * Solver (which loads the subproblem into it) touches nothing but its own
   * sub-Block, as evaluating it does [see compute()], so that the
   * subproblems get their Solver in f_max_thread threads; the Solver are
-  * then recorded in the order of the subproblems. */
+  * then recorded in the order of the subproblems. The replicas of the
+  * phase one get theirs from strPhaseOneBSC, if given. */
 
- if( ! f_Bsub_BSCfg.empty() ) {
+ const std::string & p1cfg = f_PhaseOneBSC.empty() ? f_Bsub_BSCfg
+                                                    : f_PhaseOneBSC;
+
+ if( ! ( f_Bsub_BSCfg.empty() && p1cfg.empty() ) ) {
   std::vector< Block * > subs;
-  for( auto bf : v_BF )
-   subs.push_back( bf->get_inner_block() );
-  for( auto bf : v_BF1 )
-   if( bf )
+  std::vector< const std::string * > cfgs;
+  if( ! f_Bsub_BSCfg.empty() )
+   for( auto bf : v_BF ) {
     subs.push_back( bf->get_inner_block() );
+    cfgs.push_back( & f_Bsub_BSCfg );
+    }
+  if( ! p1cfg.empty() )
+   for( auto bf : v_BF1 )
+    if( bf ) {
+     subs.push_back( bf->get_inner_block() );
+     cfgs.push_back( & p1cfg );
+     }
 
   std::vector< std::vector< std::pair< Block * , Solver * > > >
    attached( subs.size() );
   parallel_for( subs.size() , f_max_thread , [ & ]( std::size_t k ) {
-                 apply_BSCfg( subs[ k ] , f_Bsub_BSCfg , attached[ k ] ); } );
+                 apply_BSCfg( subs[ k ] , *cfgs[ k ] , attached[ k ] ); } );
 
   for( auto & a : attached )
    v_sub_solvers.insert( v_sub_solvers.end() , a.begin() , a.end() );

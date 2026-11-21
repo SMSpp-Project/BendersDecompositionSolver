@@ -829,6 +829,12 @@ class BendersDecompositionSolver : public CDASolver
   ///< filename of the BlockSolverConfig of the recovery of a feasible
   ///< solution, empty (default) for none [see recover_upper_bound()]
 
+  strPhaseOneBSC ,
+  ///< filename of the BlockSolverConfig of the replicas of the phase one,
+  ///< empty (default) for that of the subproblems [see str_Bsub_BSCfg]; a
+  ///< replica whose Solver has the tolerance of that of its subproblem may
+  ///< find no violation in a subproblem infeasible by about that tolerance
+
   strLastBDSlvPar  ///< first allowed parameter value for derived classes
   };
 
@@ -1204,6 +1210,7 @@ class BendersDecompositionSolver : public CDASolver
 
  std::string f_Mstr_BSCfg;  ///< str_Mstr_BSCfg
  std::string f_RecoveryBSC;  ///< strRecoveryBSC
+ std::string f_PhaseOneBSC;  ///< strPhaseOneBSC
 
  /// whether f_ub is the value of a solution recovered in the last compute()
  bool f_recovered = false;

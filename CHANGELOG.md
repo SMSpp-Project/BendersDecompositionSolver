@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the convex regime is bounded also with the cutting-plane method of
   `BundleSolver` (`intMPStbl` 3); the default `-inf` means none
 
+- the parameter `strPhaseOneBSC`, the BlockSolverConfig of the replicas of
+  the phase one, by default that of the subproblems: a replica solved with
+  the tolerance of the Solver of its subproblem may find no violation where
+  that Solver finds the subproblem infeasible by about that tolerance, and
+  then gives no cut and the master stays at the same point
+
 ### Changed
 
 - the library is kept in whoever links it by a source that calls its
