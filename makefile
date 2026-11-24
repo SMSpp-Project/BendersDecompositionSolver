@@ -25,8 +25,7 @@
 #           $(BnDSLVH)     = the .h files to include                         #
 #           $(BnDSLVINC)   = the -I$( source directory )                     #
 #                                                                            #
-#                              Antonio Frangioni                             #
-#                                Donato Meoli                                #
+#                             Antonio Frangioni                              #
 #                         Dipartimento di Informatica                        #
 #                             Universita' di Pisa                            #
 #                                                                            #
