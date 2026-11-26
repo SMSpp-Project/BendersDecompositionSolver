@@ -2002,11 +2002,21 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   * certificate, when it is not. */
 
  auto get_cut = [ & ]( Index k , std::vector< double > & g , double & alpha ,
-                       bool & diagonal ) {
+                       bool & diagonal , bool & cut ) {
   auto bf = v_BF[ k ];
 
   sub_time_limit( bf , v_BF_max_time[ k ] );
   const int st = bf->compute();
+
+  /* A subproblem stopped by its limits of time or iterations may have no
+   * upper bound, which is the value its cut is written with, hence it gives
+   * no cut in this round, and the round is kLowPrecision: if no other cut is
+   * violated the loop ends, and the upper bound is that of the recovery
+   * [see recover_upper_bound()]. */
+
+  cut = ( st != kStopTime ) && ( st != kStopIter );
+  if( ! cut )
+   return( int( kLowPrecision ) );
 
   // a subproblem solved to less than the accuracy asked is taken, as the
   // master is, and its kLowPrecision is passed on [see below]
@@ -2057,6 +2067,7 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   std::vector< double > g;  ///< the coefficients of the cut
   double alpha;           ///< its constant
   bool diagonal;          ///< true for an optimality cut
+  bool cut;               ///< false if the subproblem gives no cut
   };
 
  std::vector< Evaluation > v_eval( K );
@@ -2065,7 +2076,8 @@ int BendersDecompositionSolver::solve_MILP_master( void )
   parallel_for( K , f_max_thread , [ & ]( std::size_t k ) {
                  auto & e = v_eval[ k ];
                  e.g.assign( nx , 0 );
-                 e.status = get_cut( k , e.g , e.alpha , e.diagonal ); } );
+                 e.status = get_cut( k , e.g , e.alpha , e.diagonal ,
+                                     e.cut ); } );
   };
 
  /* The Pareto-optimal cuts of Papadakos: the very same evaluation, but at the
@@ -2095,6 +2107,11 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    if( ( v_eval[ k ].status != kOK ) &&
        ( v_eval[ k ].status != kLowPrecision ) )
     break;
+
+   if( ! v_eval[ k ].cut ) {   // nor is a cut aggregated without it
+    all_feasible = false;
+    continue;
+    }
 
    /* The core point is not the incumbent, hence a no-good cut written out of
     * it would forbid an assignment that has nothing to do with the one being
@@ -2329,6 +2346,10 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    const int st = v_eval[ k ].status;
    if( ( st != kOK ) && ( st != kLowPrecision ) )
     return( st );
+   if( ! v_eval[ k ].cut ) {   // the center has no value then
+    cfeas = false;
+    continue;
+    }
    if( ! v_eval[ k ].diagonal ) {
     add_feasibility_cut( k , v_eval[ k ].g , v_eval[ k ].alpha );
     cfeas = false;
@@ -2430,6 +2451,8 @@ int BendersDecompositionSolver::solve_MILP_master( void )
     if( ( st != kOK ) && ( st != kLowPrecision ) )
      return( st );
     lowp |= ( st == kLowPrecision );
+    if( ! v_eval[ k ].cut )
+     continue;
 
     if( ! diagonal ) {
      add_feasibility_cut( k , g , alpha );
@@ -2478,6 +2501,11 @@ int BendersDecompositionSolver::solve_MILP_master( void )
    if( ( st != kOK ) && ( st != kLowPrecision ) )
     return( st );
    lowp |= ( st == kLowPrecision );
+
+   if( ! v_eval[ k ].cut ) {   // nor is a cut aggregated without it
+    all_feasible = false;
+    continue;
+    }
 
    if( ! diagonal ) {   // a feasibility cut is never aggregated
     all_feasible = false;

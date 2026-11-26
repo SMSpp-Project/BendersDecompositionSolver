@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- a subproblem stopped by its limits of time or iterations, which may have
+  no upper bound to write its cut with, gives no cut in that round and makes
+  it `kLowPrecision`, so that the loop goes on with the cuts of the others,
+  or ends with the upper bound of the recovery, where before its status
+  stopped `compute()` with no upper bound: the Lagrangian dual of a
+  subproblem that reaches `intMaxIter` is the case
+
 - in the convex regime, `int_BDSlv_FeasCut` 3 gives each `BendersBFunction`
   its phase one [see `BendersBFunction::set_phase_one()`], whose
   linearization is the feasibility cut when the Solver of the subproblem
